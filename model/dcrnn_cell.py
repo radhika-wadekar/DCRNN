@@ -5,7 +5,7 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
-from tensorflow.contrib.rnn import RNNCell
+from tensorflow.compat.v1.nn.rnn_cell import RNNCell
 
 from lib import utils
 

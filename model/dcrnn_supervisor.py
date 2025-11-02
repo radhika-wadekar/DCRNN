@@ -6,6 +6,7 @@ import numpy as np
 import os
 import sys
 import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 import time
 import yaml
 

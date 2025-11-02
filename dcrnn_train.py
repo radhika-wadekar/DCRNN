@@ -6,6 +6,7 @@ import argparse
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 tf.compat.v1.disable_resource_variables()
+tf.compat.v1.disable_eager_execution()
 import yaml
 
 from lib.utils import load_graph_data
