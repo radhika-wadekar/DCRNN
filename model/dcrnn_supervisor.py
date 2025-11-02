@@ -223,7 +223,9 @@ class DCRNNSupervisor(object):
             val_results = self.run_epoch_generator(sess, self._test_model,
                                                    self._data['val_loader'].get_iterator(),
                                                    training=False)
-            val_loss, val_mae = np.asscalar(val_results['loss']), np.asscalar(val_results['mae'])
+
+            val_loss = val_results['loss'].item()
+            val_mae = val_results['mae'].item()
 
             utils.add_simple_summary(self._writer,
                                      ['loss/train_loss', 'metric/train_mae', 'loss/val_loss', 'metric/val_mae'],

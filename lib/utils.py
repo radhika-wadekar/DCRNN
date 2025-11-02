@@ -171,7 +171,7 @@ def get_total_trainable_parameter_size():
     total_parameters = 0
     for variable in tf.compat.v1.trainable_variables():
         # shape is an array of tf.Dimension
-        total_parameters += np.product([x.value for x in variable.get_shape()])
+        total_parameters += np.prod([x.value for x in variable.get_shape()])
     return total_parameters
 
 
