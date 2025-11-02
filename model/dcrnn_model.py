@@ -110,32 +110,32 @@ class DCRNNModel(object):
         # Merge summaries if needed.
         self._merged = tf.compat.v1.summary.merge_all()
 
-@staticmethod
-def _compute_sampling_threshold(global_step, k):
-    """Computes the sampling probability for scheduled sampling using inverse sigmoid."""
-    return tf.cast(k / (k + tf.exp(global_step / k)), tf.float32)
+    @staticmethod
+    def _compute_sampling_threshold(global_step, k):
+        """Computes the sampling probability for scheduled sampling using inverse sigmoid."""
+        return tf.cast(k / (k + tf.exp(global_step / k)), tf.float32)
 
-@property
-def inputs(self):
-    return self._inputs
+    @property
+    def inputs(self):
+        return self._inputs
 
-@property
-def labels(self):
-    return self._labels
+    @property
+    def labels(self):
+        return self._labels
 
-@property
-def loss(self):
-    return self._loss
+    @property
+    def loss(self):
+        return self._loss
 
-@property
-def mae(self):
-    return self._mae
+    @property
+    def mae(self):
+        return self._mae
 
-@property
-def merged(self):
-    return self._merged
+    @property
+    def merged(self):
+        return self._merged
 
-@property
-def outputs(self):
-    return self._outputs
+    @property
+    def outputs(self):
+        return self._outputs
 
