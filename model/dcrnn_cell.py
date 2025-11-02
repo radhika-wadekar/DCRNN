@@ -61,7 +61,7 @@ class DCGRUCell(RNNCell):
         L = L.tocoo()
         indices = np.column_stack((L.row, L.col))
         L = tf.SparseTensor(indices, L.data, L.shape)
-        return tf.sparse_reorder(L)
+        return tf.sparse.reorder(L)
 
     @property
     def state_size(self):
@@ -83,8 +83,8 @@ class DCGRUCell(RNNCell):
         - New state: Either a single `2-D` tensor, or a tuple of tensors matching
             the arity and shapes of `state`
         """
-        with tf.variable_scope(scope or "dcgru_cell"):
-            with tf.variable_scope("gates"):  # Reset gate and update gate.
+        with tf.compat.v1.variable_scope(scope or "dcgru_cell"):
+            with tf.compat.v1.variable_scope("gates"):  # Reset gate and update gate.
                 output_size = 2 * self._num_units
                 # We start with bias of 1.0 to not reset and not update.
                 if self._use_gc_for_ru:
@@ -96,14 +96,14 @@ class DCGRUCell(RNNCell):
                 r, u = tf.split(value=value, num_or_size_splits=2, axis=-1)
                 r = tf.reshape(r, (-1, self._num_nodes * self._num_units))
                 u = tf.reshape(u, (-1, self._num_nodes * self._num_units))
-            with tf.variable_scope("candidate"):
+            with tf.compat.v1.variable_scope("candidate"):
                 c = self._gconv(inputs, r * state, self._num_units)
                 if self._activation is not None:
                     c = self._activation(c)
             output = new_state = u * state + (1 - u) * c
             if self._num_proj is not None:
-                with tf.variable_scope("projection"):
-                    w = tf.get_variable('w', shape=(self._num_units, self._num_proj))
+                with tf.compat.v1.variable_scope("projection"):
+                    w = tf.compat.v1.get_variable('w', shape=(self._num_units, self._num_proj))
                     batch_size = inputs.get_shape()[0].value
                     output = tf.reshape(new_state, shape=(-1, self._num_units))
                     output = tf.reshape(tf.matmul(output, w), shape=(batch_size, self.output_size))
@@ -121,12 +121,12 @@ class DCGRUCell(RNNCell):
         state = tf.reshape(state, (batch_size * self._num_nodes, -1))
         inputs_and_state = tf.concat([inputs, state], axis=-1)
         input_size = inputs_and_state.get_shape()[-1].value
-        weights = tf.get_variable(
+        weights = tf.compat.v1.get_variable(
             'weights', [input_size, output_size], dtype=dtype,
-            initializer=tf.contrib.layers.xavier_initializer())
+            initializer=tf.compat.v1.keras.initializers.VarianceScaling(scale=1.0, mode="fan_avg", distribution="uniform"))
         value = tf.nn.sigmoid(tf.matmul(inputs_and_state, weights))
-        biases = tf.get_variable("biases", [output_size], dtype=dtype,
-                                 initializer=tf.constant_initializer(bias_start, dtype=dtype))
+        biases = tf.compat.v1.get_variable("biases", [output_size], dtype=dtype,
+                                 initializer=tf.compat.v1.constant_initializer(bias_start, dtype=dtype))
         value = tf.nn.bias_add(value, biases)
         return value
 
@@ -153,17 +153,17 @@ class DCGRUCell(RNNCell):
         x0 = tf.reshape(x0, shape=[self._num_nodes, input_size * batch_size])
         x = tf.expand_dims(x0, axis=0)
 
-        scope = tf.get_variable_scope()
-        with tf.variable_scope(scope):
+        scope = tf.compat.v1.get_variable_scope()
+        with tf.compat.v1.variable_scope(scope):
             if self._max_diffusion_step == 0:
                 pass
             else:
                 for support in self._supports:
-                    x1 = tf.sparse_tensor_dense_matmul(support, x0)
+                    x1 = tf.sparse.sparse_dense_matmul(support, x0)
                     x = self._concat(x, x1)
 
                     for k in range(2, self._max_diffusion_step + 1):
-                        x2 = 2 * tf.sparse_tensor_dense_matmul(support, x1) - x0
+                        x2 = 2 * tf.sparse.sparse_dense_matmul(support, x1) - x0
                         x = self._concat(x, x2)
                         x1, x0 = x2, x1
 
@@ -172,13 +172,13 @@ class DCGRUCell(RNNCell):
             x = tf.transpose(x, perm=[3, 1, 2, 0])  # (batch_size, num_nodes, input_size, order)
             x = tf.reshape(x, shape=[batch_size * self._num_nodes, input_size * num_matrices])
 
-            weights = tf.get_variable(
+            weights = tf.compat.v1.get_variable(
                 'weights', [input_size * num_matrices, output_size], dtype=dtype,
-                initializer=tf.contrib.layers.xavier_initializer())
+                initializer=tf.compat.v1.keras.initializers.VarianceScaling(scale=1.0, mode="fan_avg", distribution="uniform"))
             x = tf.matmul(x, weights)  # (batch_size * self._num_nodes, output_size)
 
-            biases = tf.get_variable("biases", [output_size], dtype=dtype,
-                                     initializer=tf.constant_initializer(bias_start, dtype=dtype))
+            biases = tf.compat.v1.get_variable("biases", [output_size], dtype=dtype,
+                                     initializer=tf.compat.v1.constant_initializer(bias_start, dtype=dtype))
             x = tf.nn.bias_add(x, biases)
         # Reshape res back to 2D: (batch_size, num_node, state_dim) -> (batch_size, num_node * state_dim)
         return tf.reshape(x, [batch_size, self._num_nodes * output_size])

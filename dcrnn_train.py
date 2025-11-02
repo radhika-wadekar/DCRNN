@@ -3,7 +3,9 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
+tf.compat.v1.disable_resource_variables()
 import yaml
 
 from lib.utils import load_graph_data
@@ -17,11 +19,11 @@ def main(args):
         graph_pkl_filename = supervisor_config['data'].get('graph_pkl_filename')
         sensor_ids, sensor_id_to_ind, adj_mx = load_graph_data(graph_pkl_filename)
 
-        tf_config = tf.ConfigProto()
+        tf_config = tf.compat.v1.ConfigProto()
         if args.use_cpu_only:
-            tf_config = tf.ConfigProto(device_count={'GPU': 0})
+            tf_config = tf.compat.v1.ConfigProto(device_count={'GPU': 0})
         tf_config.gpu_options.allow_growth = True
-        with tf.Session(config=tf_config) as sess:
+        with tf.compat.v1.Session(config=tf_config) as sess:
             supervisor = DCRNNSupervisor(adj_mx=adj_mx, **supervisor_config)
 
             supervisor.train(sess=sess)
