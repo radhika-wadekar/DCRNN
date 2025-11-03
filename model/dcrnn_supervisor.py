@@ -308,7 +308,7 @@ class DCRNNSupervisor(object):
 
     def save(self, sess, val_loss):
         config = dict(self._kwargs)
-        global_step = np.asscalar(sess.run(tf.compat.v1.train.get_or_create_global_step()))
+        global_step = sess.run(tf.compat.v1.train.get_or_create_global_step()).item()
         prefix = os.path.join(self._log_dir, 'models-{:.4f}'.format(val_loss))
         config['train']['epoch'] = self._epoch
         config['train']['global_step'] = global_step
