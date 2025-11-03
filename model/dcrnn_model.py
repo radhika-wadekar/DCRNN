@@ -7,9 +7,9 @@ import tensorflow as tf
 from lib.metrics import masked_mae_loss
 from model.dcrnn_cell import DCGRUCell
 
+
 class DCRNNModel(object):
     def __init__(self, is_training, batch_size, scaler, adj_mx, **model_kwargs):
-
         self._scaler = scaler
 
         # Train and loss
@@ -31,20 +31,18 @@ class DCRNNModel(object):
         input_dim = int(model_kwargs.get('input_dim', 1))
         output_dim = int(model_kwargs.get('output_dim', 1))
 
-        # Input (batch_size, timesteps, num_sensor, input_dim)
+        # Placeholders
         self._inputs = tf.compat.v1.placeholder(
             tf.float32, shape=(batch_size, seq_len, num_nodes, input_dim), name='inputs'
         )
-
-        # Labels: (batch_size, timesteps, num_sensor, input_dim)
         self._labels = tf.compat.v1.placeholder(
             tf.float32, shape=(batch_size, horizon, num_nodes, input_dim), name='labels'
         )
 
-        # GO_SYMBOL = tf.zeros(shape=(batch_size, num_nodes * input_dim))
+        # GO symbol
         GO_SYMBOL = tf.zeros(shape=(batch_size, num_nodes * output_dim))
 
-        # Encoder/Decoder cells
+        # Build encoder and decoder cells
         cell = DCGRUCell(
             rnn_units,
             adj_mx,
@@ -68,46 +66,50 @@ class DCRNNModel(object):
 
         global_step = tf.compat.v1.train.get_or_create_global_step()
 
-        with tf.compat.v1.variable_scope('DCRNN_SEQ'):
-            inputs = tf.unstack(
-                tf.reshape(self._inputs, (batch_size, seq_len, num_nodes * input_dim)), axis=1
-            )
-            labels = tf.unstack(
-                tf.reshape(self._labels[..., :output_dim], (batch_size, horizon, num_nodes * output_dim)), axis=1
-            )
-            labels.insert(0, GO_SYMBOL)
+        # === Updated scopes to match checkpoint ===
+        with tf.compat.v1.variable_scope('DCRNN'):
+            with tf.compat.v1.variable_scope('DCRNN_SEQ'):
+                inputs = tf.unstack(
+                    tf.reshape(self._inputs, (batch_size, seq_len, num_nodes * input_dim)), axis=1
+                )
+                labels = tf.unstack(
+                    tf.reshape(self._labels[..., :output_dim], (batch_size, horizon, num_nodes * output_dim)), axis=1
+                )
+                labels.insert(0, GO_SYMBOL)
 
-            def _loop_function(prev, i):
-                if is_training:
-                    if use_curriculum_learning:
-                        c = tf.random.uniform((), minval=0, maxval=1.)
-                        threshold = self._compute_sampling_threshold(global_step, cl_decay_steps)
-                        result = tf.cond(tf.less(c, threshold), lambda: labels[i], lambda: prev)
+                def _loop_function(prev, i):
+                    if is_training:
+                        if use_curriculum_learning:
+                            c = tf.random.uniform((), minval=0, maxval=1.)
+                            threshold = self._compute_sampling_threshold(global_step, cl_decay_steps)
+                            result = tf.cond(tf.less(c, threshold), lambda: labels[i], lambda: prev)
+                        else:
+                            result = labels[i]
                     else:
-                        result = labels[i]
-                else:
-                    result = prev
-                return result
+                        result = prev
+                    return result
 
-            # --- Encoder ---
-            _, enc_state = tf.compat.v1.nn.static_rnn(encoding_cells, inputs, dtype=tf.float32)
+                # --- Encoder ---
+                with tf.compat.v1.variable_scope('rnn'):
+                    _, enc_state = tf.compat.v1.nn.static_rnn(encoding_cells, inputs, dtype=tf.float32)
 
-            # --- Decoder (manual TF2-compatible loop) ---
-            outputs = []
-            state = enc_state
-            prev = labels[0]  # GO_SYMBOL equivalent
+                # --- Decoder ---
+                outputs = []
+                state = enc_state
+                prev = labels[0]
 
-            for i in range(1, len(labels)):
-                current_input = _loop_function(prev, i)
-                output, state = decoding_cells(current_input, state)
-                outputs.append(output)
-                prev = output
+                with tf.compat.v1.variable_scope('rnn_decoder'):
+                    for i in range(1, len(labels)):
+                        current_input = _loop_function(prev, i)
+                        output, state = decoding_cells(current_input, state)
+                        outputs.append(output)
+                        prev = output
 
-        # Project the output to output_dim.
+        # Reshape and name outputs
         outputs = tf.stack(outputs, axis=1)
         self._outputs = tf.reshape(outputs, (batch_size, horizon, num_nodes, output_dim), name='outputs')
 
-        # Merge summaries if needed.
+        # Merge summaries if needed
         self._merged = tf.compat.v1.summary.merge_all()
 
     @staticmethod
@@ -138,4 +140,3 @@ class DCRNNModel(object):
     @property
     def outputs(self):
         return self._outputs
-
