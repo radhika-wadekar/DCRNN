@@ -92,18 +92,19 @@ def eval_static(traffic_reading_df):
     logger.info('\t'.join(['Model', 'Horizon', 'RMSE', 'MAPE', 'MAE']))
     for horizon in horizons:
         y_predict, y_test = static_predict(traffic_reading_df, n_forward=horizon, test_ratio=0.2)
-        rmse = masked_rmse_np(preds=y_predict.as_matrix(), labels=y_test.as_matrix(), null_val=0)
-        mape = masked_mape_np(preds=y_predict.as_matrix(), labels=y_test.as_matrix(), null_val=0)
-        mae = masked_mae_np(preds=y_predict.as_matrix(), labels=y_test.as_matrix(), null_val=0)
+        rmse = masked_rmse_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
+        mape = masked_mape_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
+        mae = masked_mae_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
+
         line = 'Static\t%d\t%.2f\t%.2f\t%.2f' % (horizon, rmse, mape * 100, mae)
         logger.info(line)
 
 
 def eval_historical_average(traffic_reading_df, period):
     y_predict, y_test = historical_average_predict(traffic_reading_df, period=period, test_ratio=0.2)
-    rmse = masked_rmse_np(preds=y_predict.as_matrix(), labels=y_test.as_matrix(), null_val=0)
-    mape = masked_mape_np(preds=y_predict.as_matrix(), labels=y_test.as_matrix(), null_val=0)
-    mae = masked_mae_np(preds=y_predict.as_matrix(), labels=y_test.as_matrix(), null_val=0)
+    rmse = masked_rmse_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
+    mape = masked_mape_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
+    mae = masked_mae_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
     logger.info('Historical Average')
     logger.info('\t'.join(['Model', 'Horizon', 'RMSE', 'MAPE', 'MAE']))
     for horizon in [1, 3, 6, 12]:
@@ -113,14 +114,14 @@ def eval_historical_average(traffic_reading_df, period):
 
 def eval_var(traffic_reading_df, n_lags=3):
     n_forwards = [1, 3, 6, 12]
-    y_predicts, y_test = var_predict(traffic_reading_df, n_forwards=n_forwards, n_lags=n_lags,
+    y_predict, y_test = var_predict(traffic_reading_df, n_forwards=n_forwards, n_lags=n_lags,
                                      test_ratio=0.2)
     logger.info('VAR (lag=%d)' % n_lags)
     logger.info('Model\tHorizon\tRMSE\tMAPE\tMAE')
     for i, horizon in enumerate(n_forwards):
-        rmse = masked_rmse_np(preds=y_predicts[i].as_matrix(), labels=y_test.as_matrix(), null_val=0)
-        mape = masked_mape_np(preds=y_predicts[i].as_matrix(), labels=y_test.as_matrix(), null_val=0)
-        mae = masked_mae_np(preds=y_predicts[i].as_matrix(), labels=y_test.as_matrix(), null_val=0)
+        rmse = masked_rmse_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
+        mape = masked_mape_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
+        mae = masked_mae_np(preds=y_predict.to_numpy(), labels=y_test.to_numpy(), null_val=0)
         line = 'VAR\t%d\t%.2f\t%.2f\t%.2f' % (horizon, rmse, mape * 100, mae)
         logger.info(line)
 
