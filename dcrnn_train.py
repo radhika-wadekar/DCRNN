@@ -32,6 +32,10 @@ def main(args):
                                       supervisor_config.get('model', {}))
             supervisor = DCRNNSupervisor(adj_mx=adj_mx, mask_config=mask_config, **supervisor_config)
 
+            tvars = tf.compat.v1.trainable_variables()
+            print("Logging tvars:")
+            print(tvars)
+            
             supervisor.train(sess=sess)
 
 
