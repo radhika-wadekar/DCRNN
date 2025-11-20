@@ -25,7 +25,7 @@ class DCRNNSupervisor(object):
     def __init__(self, adj_mx, mask_config=None, **kwargs):
 
         self._kwargs = kwargs
-        self.mask_config = mask_config
+        self._mask_config = mask_config
         self._data_kwargs = kwargs.get('data')
         self._model_kwargs = kwargs.get('model')
         self._train_kwargs = kwargs.get('train')

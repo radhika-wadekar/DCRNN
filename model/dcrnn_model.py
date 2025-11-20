@@ -30,9 +30,9 @@ class DCRNNModel(object):
         output_dim = int(model_kwargs.get('output_dim', 1))
 
         # Build learnable adjacency mask if enabled
-        if mask_config is not None and mask_config.get('use_learnable_mask', False):
-            num_nodes = mask_config['num_nodes']
-            init_bias = mask_config.get('init_bias', 3.0)
+        if self._mask_config is not None and self._mask_config.get('use_learnable_mask', False):
+            num_nodes = self._mask_config['num_nodes']
+            init_bias = self._mask_config.get('init_bias', 3.0)
             with tf.compat.v1.variable_scope('Masks', reuse=tf.compat.v1.AUTO_REUSE):
                 # mask_var: [N, N]
                 self.mask_var = tf.compat.v1.get_variable(
