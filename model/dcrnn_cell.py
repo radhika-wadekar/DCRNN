@@ -21,7 +21,8 @@ class DCGRUCell(RNNCell):
         pass
 
     def __init__(self, num_units, adj_mx, max_diffusion_step, num_nodes, num_proj=None,
-                 activation=tf.nn.tanh, reuse=None, filter_type="laplacian", use_gc_for_ru=True, mask_var=None):
+                 activation=tf.nn.tanh, reuse=None, filter_type="laplacian", use_gc_for_ru=True,  M_tod=None, M_dow=None,
+             tod_idx=None, dow_idx=None):
         """
 
         :param num_units:
@@ -43,7 +44,10 @@ class DCGRUCell(RNNCell):
         self._max_diffusion_step = max_diffusion_step
         self._supports = []
         self._use_gc_for_ru = use_gc_for_ru
-        self._mask_var = mask_var
+        self._M_tod = M_tod
+        self._M_dow = M_dow
+        self._tod_idx = tod_idx
+        self._dow_idx = dow_idx
         
         
         # supports = []
@@ -63,7 +67,7 @@ class DCGRUCell(RNNCell):
         supports = []
         self.filter_type = filter_type  # keep if needed later
 
-        if self._mask_var is None:
+        if self._M_tod is None or self._M_dow is None:
             # ORIGINAL BEHAVIOR: static supports from numpy adj_mx
             if filter_type == "laplacian":
                 supports.append(utils.calculate_scaled_laplacian(adj_mx, lambda_max=None))
@@ -77,11 +81,17 @@ class DCGRUCell(RNNCell):
             for support in supports:
                 self._supports.append(self._build_sparse_matrix(support))
         else:
-            # NEW BEHAVIOR: build supports from masked adjacency inside TF graph
-            # Convert numpy adj_mx to tf.Tensor
+            
+            # temporal masks
             A_orig = tf.convert_to_tensor(adj_mx, dtype=tf.float32)
-            sig_mask = tf.nn.sigmoid(self._mask_var)  # [N, N]
-            A_tilde = sig_mask * A_orig
+
+            # pick context-specific masks
+            M_t = tf.gather(self._M_tod, self._tod_idx)  # [N, N]
+            M_d = tf.gather(self._M_dow, self._dow_idx)  # [N, N]
+            sig_t = tf.nn.sigmoid(M_t)
+            sig_d = tf.nn.sigmoid(M_d)
+
+            A_tilde = sig_t * sig_d * A_orig
 
             if filter_type == "laplacian":
                 L = utils.calculate_scaled_laplacian_tf(A_tilde, lambda_max=None)
@@ -104,7 +114,7 @@ class DCGRUCell(RNNCell):
         indices = np.column_stack((L.row, L.col))
         L = tf.SparseTensor(indices, L.data, L.shape)
         return tf.sparse.reorder(L)
-
+    
     @staticmethod
     def _build_sparse_matrix_tf(L):
         """

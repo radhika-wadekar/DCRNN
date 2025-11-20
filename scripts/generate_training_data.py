@@ -9,6 +9,27 @@ import os
 import pandas as pd
 
 
+def encode_time_of_day(ts):
+    """Map a timestamp to a time-of-day bucket index in {0,1,2,3}."""
+    hour = ts.hour + ts.minute / 60.0
+    # Example 4 buckets – tweak if you like
+    if 6 <= hour < 11:
+        return 0  # morning
+    elif 11 <= hour < 17:
+        return 1  # day
+    elif 17 <= hour < 22:
+        return 2  # evening
+    else:
+        return 3  # night
+
+
+def encode_day_of_week(ts):
+    """Map a timestamp to weekday/weekend bucket index in {0,1}."""
+    # 0=Mon, 1=Tue, ..., 6=Sun
+    dow = ts.dayofweek
+    return 0 if dow < 5 else 1  # 0=weekday, 1=weekend
+
+
 def generate_graph_seq2seq_io_data(df, x_offsets, y_offsets, add_time_in_day=True, add_day_in_week=False, scaler=None):
     num_samples, num_nodes = df.shape
     data = np.expand_dims(df.values, axis=-1)
@@ -25,6 +46,8 @@ def generate_graph_seq2seq_io_data(df, x_offsets, y_offsets, add_time_in_day=Tru
 
     data = np.concatenate(data_list, axis=-1)
     x, y = [], []
+    tod_list, dow_list = [], []
+
     min_t = abs(min(x_offsets))
     max_t = abs(num_samples - abs(max(y_offsets)))
     for t in range(min_t, max_t):
@@ -32,9 +55,20 @@ def generate_graph_seq2seq_io_data(df, x_offsets, y_offsets, add_time_in_day=Tru
         y_t = data[t + y_offsets, ...]
         x.append(x_t)
         y.append(y_t)
+        # ------------------------------
+        # NEW: reference time for this sample
+        # x_offsets = [-11,...,0], so the last input step index is t + 0 = t
+        ts_ref = df.index[t]
+
+        tod_list.append(encode_time_of_day(ts_ref))
+        dow_list.append(encode_day_of_week(ts_ref))
+        # ------------------------------
     x = np.stack(x, axis=0)
     y = np.stack(y, axis=0)
-    return x, y
+    tod_idx = np.array(tod_list, dtype=np.int32)
+    dow_idx = np.array(dow_list, dtype=np.int32)
+
+    return x, y, tod_idx, dow_idx
 
 
 def generate_train_val_test(args):
@@ -45,7 +79,7 @@ def generate_train_val_test(args):
     )
     y_offsets = np.sort(np.arange(1, 13, 1))
 
-    x, y = generate_graph_seq2seq_io_data(
+    x, y, tod_idx, dow_idx = generate_graph_seq2seq_io_data(
         df,
         x_offsets=x_offsets,
         y_offsets=y_offsets,
@@ -65,13 +99,21 @@ def generate_train_val_test(args):
     )
     x_test, y_test = x[-num_test:], y[-num_test:]
 
+    tod_train, dow_train = tod_idx[:num_train], dow_idx[:num_train]
+    tod_val, dow_val = tod_idx[num_train: num_train + num_val], dow_idx[num_train: num_train + num_val]
+    tod_test, dow_test = tod_idx[-num_test:], dow_idx[-num_test:]
+
+
     for cat in ["train", "val", "test"]:
         _x, _y = locals()["x_" + cat], locals()["y_" + cat]
-        print(cat, "x: ", _x.shape, "y:", _y.shape)
+        _tod, _dow = locals()["tod_" + cat], locals()["dow_" + cat]
+        print(cat, "x: ", _x.shape, "y:", _y.shape, "tod:", _tod.shape, "dow:", _dow.shape)
         np.savez_compressed(
             os.path.join(args.output_dir, "%s.npz" % cat),
             x=_x,
             y=_y,
+            tod=_tod,
+            dow=_dow,
             x_offsets=x_offsets.reshape(list(x_offsets.shape) + [1]),
             y_offsets=y_offsets.reshape(list(y_offsets.shape) + [1]),
         )

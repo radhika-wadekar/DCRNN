@@ -10,29 +10,46 @@ from scipy.sparse import linalg
 
 
 class DataLoader(object):
-    def __init__(self, xs, ys, batch_size, pad_with_last_sample=True, shuffle=False):
+    def __init__(self, xs, ys, batch_size, tod=None, dow=None, pad_with_last_sample=True, shuffle=False):
         """
 
         :param xs:
         :param ys:
         :param batch_size:
+        :param tod: [num_samples] or None
+        :param dow: [num_samples] or None
         :param pad_with_last_sample: pad with the last sample to make number of samples divisible to batch_size.
         """
         self.batch_size = batch_size
         self.current_ind = 0
+
+        self.has_context = (tod is not None) and (dow is not None)
+
         if pad_with_last_sample:
             num_padding = (batch_size - (len(xs) % batch_size)) % batch_size
-            x_padding = np.repeat(xs[-1:], num_padding, axis=0)
-            y_padding = np.repeat(ys[-1:], num_padding, axis=0)
-            xs = np.concatenate([xs, x_padding], axis=0)
-            ys = np.concatenate([ys, y_padding], axis=0)
+            if num_padding > 0:
+                x_padding = np.repeat(xs[-1:], num_padding, axis=0)
+                y_padding = np.repeat(ys[-1:], num_padding, axis=0)
+                xs = np.concatenate([xs, x_padding], axis=0)
+                ys = np.concatenate([ys, y_padding], axis=0)
+                if self.has_context:
+                    tod_padding = np.repeat(tod[-1:], num_padding, axis=0)
+                    dow_padding = np.repeat(dow[-1:], num_padding, axis=0)
+                    tod = np.concatenate([tod, tod_padding], axis=0)
+                    dow = np.concatenate([dow, dow_padding], axis=0)
         self.size = len(xs)
         self.num_batch = int(self.size // self.batch_size)
         if shuffle:
             permutation = np.random.permutation(self.size)
             xs, ys = xs[permutation], ys[permutation]
+            if self.has_context:
+                tod, dow = tod[permutation], dow[permutation]
+            
         self.xs = xs
         self.ys = ys
+        self.tod = tod
+        self.dow = dow
+
 
     def get_iterator(self):
         self.current_ind = 0
@@ -43,7 +60,12 @@ class DataLoader(object):
                 end_ind = min(self.size, self.batch_size * (self.current_ind + 1))
                 x_i = self.xs[start_ind: end_ind, ...]
                 y_i = self.ys[start_ind: end_ind, ...]
-                yield (x_i, y_i)
+                if self.has_context:
+                    tod_i = self.tod[start_ind: end_ind]
+                    dow_i = self.dow[start_ind: end_ind]
+                    yield (x_i, y_i, tod_i, dow_i)
+                else:
+                    yield (x_i, y_i)
                 self.current_ind += 1
 
         return _wrapper()
@@ -181,14 +203,22 @@ def load_dataset(dataset_dir, batch_size, test_batch_size=None, **kwargs):
         cat_data = np.load(os.path.join(dataset_dir, category + '.npz'))
         data['x_' + category] = cat_data['x']
         data['y_' + category] = cat_data['y']
+        # NEW: TOD / DOW if present
+        if 'tod' in cat_data and 'dow' in cat_data:
+            data['tod_' + category] = cat_data['tod']
+            data['dow_' + category] = cat_data['dow']
+        else:
+            data['tod_' + category] = None
+            data['dow_' + category] = None
+
     scaler = StandardScaler(mean=data['x_train'][..., 0].mean(), std=data['x_train'][..., 0].std())
     # Data format
     for category in ['train', 'val', 'test']:
         data['x_' + category][..., 0] = scaler.transform(data['x_' + category][..., 0])
         data['y_' + category][..., 0] = scaler.transform(data['y_' + category][..., 0])
-    data['train_loader'] = DataLoader(data['x_train'], data['y_train'], batch_size, shuffle=True)
-    data['val_loader'] = DataLoader(data['x_val'], data['y_val'], test_batch_size, shuffle=False)
-    data['test_loader'] = DataLoader(data['x_test'], data['y_test'], test_batch_size, shuffle=False)
+    data['train_loader'] = DataLoader(data['x_train'], data['y_train'], batch_size, tod=data['tod_train'], dow=data['dow_train'],shuffle=True)
+    data['val_loader'] = DataLoader(data['x_val'], data['y_val'], test_batch_size, tod=data['tod_val'], dow=data['dow_val'], shuffle=False)
+    data['test_loader'] = DataLoader(data['x_test'], data['y_test'], test_batch_size,tod=data['tod_test'], dow=data['dow_test'], shuffle=False)
     data['scaler'] = scaler
 
     return data
@@ -213,29 +243,26 @@ def load_pickle(pickle_file):
 
 
 
-def build_mask_config(adj_mx, data_cfg):
+def build_mask_config(adj_mx, data_cfg, model_cfg):
     """
     Returns a dict with mask-related hyperparams and shapes.
-    adj_mx: numpy array [N, N] (A_orig)
-    data_cfg: kwargs['data'] section from yaml
     """
-    num_nodes = adj_mx.shape[0]
-    use_masks = data_cfg.get('use_temporal_masks', False)
+    use_masks = data_cfg.get('use_temporal_masks', False) or \
+                model_cfg.get('use_temporal_masks', False)
     if not use_masks:
         return None
 
+    num_nodes = adj_mx.shape[0]
     num_tod = data_cfg.get('num_tod_buckets', 4)
     num_dow = data_cfg.get('num_dow_buckets', 2)
 
-    mask_cfg = {
+    return {
         'use_temporal_masks': True,
         'num_nodes': num_nodes,
         'num_tod_buckets': num_tod,
         'num_dow_buckets': num_dow,
-        # you could add initial bias if you want sigmoid≈1
-        'init_bias': 3.0
+        'init_bias': 3.0   # initial raw value for all masks
     }
-    return mask_cfg
 
 def calculate_random_walk_matrix_tf(adj_mx):
     """

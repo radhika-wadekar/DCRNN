@@ -88,24 +88,35 @@ class DCRNNSupervisor(object):
         lambda_diversity = float(self._train_kwargs.get('lambda_diversity', 0.0))
 
         reg_loss = 0.0
-        if self._mask_config is not None and self._mask_config.get('use_learnable_mask', False):
-            # mask_var will be created in DCRNNModel
-            mask_var = self._train_model.mask_var  # [N, N]
-            sig_mask = tf.nn.sigmoid(mask_var)
+        if self._mask_config is not None and self._mask_config.get('use_temporal_masks', False):
+            M_tod = self._train_model.M_tod  # [K_tod, N, N]
+            M_dow = self._train_model.M_dow  # [K_dow, N, N]
 
-            # Sparsity: L1 on sigmoid(mask)
-            sparsity = tf.reduce_sum(tf.abs(sig_mask))
+            sig_tod = tf.nn.sigmoid(M_tod)
+            sig_dow = tf.nn.sigmoid(M_dow)
 
-            # Magnitude: L2 on raw mask params
-            magnitude = tf.reduce_sum(tf.square(mask_var))
+            # Sparsity
+            sparsity = tf.add(tf.reduce_sum(tf.abs(sig_tod)),
+                            tf.reduce_sum(tf.abs(sig_dow)))
 
-            # For now, no diversity (single mask). If you add multiple later, extend this.
-            diversity = 0.0
+            # Magnitude
+            magnitude = tf.add(tf.reduce_sum(tf.square(M_tod)),
+                            tf.reduce_sum(tf.square(M_dow)))
+
+            # Diversity: encourage different masks to be different
+            def diversity_term(sig_masks):
+                s1 = tf.expand_dims(sig_masks, 1)   # [K,1,N,N]
+                s2 = tf.expand_dims(sig_masks, 0)   # [1,K,N,N]
+                diff = s1 - s2                      # [K,K,N,N]
+                return tf.reduce_sum(tf.square(diff))
+
+            diversity = diversity_term(sig_tod) + diversity_term(sig_dow)
 
             reg_loss = (lambda_sparsity * sparsity +
                         lambda_magnitude * magnitude -
                         lambda_diversity * diversity)
-            self._train_loss += reg_loss
+
+        self._train_loss += reg_loss
 
         # Choose trainable vars (freeze backbone if requested)
         all_tvars = tf.compat.v1.trainable_variables()
@@ -187,11 +198,24 @@ class DCRNNSupervisor(object):
                 'outputs': model.outputs
             })
 
-        for _, (x, y) in enumerate(data_generator):
+        for batch in data_generator:
+            # batch can be (x,y) or (x,y,tod,dow)
+            if len(batch) == 4:
+                x, y, tod_batch, dow_batch = batch
+            else:
+                x, y = batch
+                tod_batch = None
+                dow_batch = None
+
             feed_dict = {
                 model.inputs: x,
                 model.labels: y,
             }
+            # Feed temporal context if masks are enabled
+            if tod_batch is not None and hasattr(model, 'tod_idx') and model.tod_idx is not None:
+                # Assuming batch is homogeneous in context or using the first sample
+                feed_dict[model.tod_idx] = int(tod_batch[0])
+                feed_dict[model.dow_idx] = int(dow_batch[0])
 
             vals = sess.run(fetches, feed_dict=feed_dict)
 

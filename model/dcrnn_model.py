@@ -29,19 +29,33 @@ class DCRNNModel(object):
         input_dim = int(model_kwargs.get('input_dim', 1))
         output_dim = int(model_kwargs.get('output_dim', 1))
 
-        # Build learnable adjacency mask if enabled
-        if self._mask_config is not None and self._mask_config.get('use_learnable_mask', False):
-            num_nodes = self._mask_config['num_nodes']
-            init_bias = self._mask_config.get('init_bias', 3.0)
+
+        # --- NEW: multi-context masks ---
+        if mask_config is not None and mask_config.get('use_temporal_masks', False):
+            num_tod = mask_config['num_tod_buckets']
+            num_dow = mask_config['num_dow_buckets']
+            init_bias = mask_config.get('init_bias', 3.0)
+
             with tf.compat.v1.variable_scope('Masks', reuse=tf.compat.v1.AUTO_REUSE):
-                # mask_var: [N, N]
-                self.mask_var = tf.compat.v1.get_variable(
-                    'adj_mask',
-                    shape=[num_nodes, num_nodes],
+                self.M_tod = tf.compat.v1.get_variable(
+                    'M_tod',
+                    shape=[num_tod, num_nodes, num_nodes],
                     initializer=tf.compat.v1.constant_initializer(init_bias)
                 )
+                self.M_dow = tf.compat.v1.get_variable(
+                    'M_dow',
+                    shape=[num_dow, num_nodes, num_nodes],
+                    initializer=tf.compat.v1.constant_initializer(init_bias)
+                )
+
+            # context indices (scalar per batch)
+            self.tod_idx = tf.compat.v1.placeholder(tf.int32, shape=(), name='tod_idx')
+            self.dow_idx = tf.compat.v1.placeholder(tf.int32, shape=(), name='dow_idx')
         else:
-            self.mask_var = None
+            self.M_tod = None
+            self.M_dow = None
+            self.tod_idx = None
+            self.dow_idx = None
 
 
         self._inputs = tf.compat.v1.placeholder(
@@ -59,7 +73,10 @@ class DCRNNModel(object):
             max_diffusion_step=max_diffusion_step,
             num_nodes=num_nodes,
             filter_type=filter_type,
-            mask_var=self.mask_var
+            M_tod=self.M_tod,
+            M_dow=self.M_dow,
+            tod_idx=self.tod_idx,
+            dow_idx=self.dow_idx
         )
         cell_with_projection = DCGRUCell(
             rnn_units,
@@ -68,7 +85,10 @@ class DCRNNModel(object):
             num_nodes=num_nodes,
             num_proj=output_dim,
             filter_type=filter_type,
-            mask_var=self.mask_var
+            M_tod=self.M_tod,
+            M_dow=self.M_dow,
+            tod_idx=self.tod_idx,
+            dow_idx=self.dow_idx
         )
 
         encoding_cells = [cell] * num_rnn_layers
