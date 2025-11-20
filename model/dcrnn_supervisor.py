@@ -254,13 +254,37 @@ class DCRNNSupervisor(object):
         wait = 0
 
         max_to_keep = train_kwargs.get('max_to_keep', 100)
-        saver = tf.compat.v1.train.Saver(tf.compat.v1.global_variables(), max_to_keep=max_to_keep)
+        
+        # --- NEW: build separate savers for restore (backbone only) and save (all vars) ---
+        all_vars = tf.compat.v1.global_variables()
+        # Mask vars are under 'DCRNN/Masks/...'
+        backbone_vars = [v for v in all_vars if not v.name.startswith('DCRNN/Masks/')]
+
+        saver_backbone = tf.compat.v1.train.Saver(backbone_vars, max_to_keep=max_to_keep)
+        saver_all = tf.compat.v1.train.Saver(all_vars, max_to_keep=max_to_keep)
+        # use saver_all for self.save()
+        self._saver = saver_all
+
         model_filename = train_kwargs.get('model_filename')
         if model_filename is not None:
-            saver.restore(sess, model_filename)
+            # 1) init everything (so masks get initialized)
+            sess.run(tf.compat.v1.variables_initializer(all_vars))
+            # 2) restore only backbone from pretrained checkpoint
+            saver_backbone.restore(sess, model_filename)
             self._epoch = epoch + 1
+            self._logger.info('Restored backbone weights from %s (masks initialized from scratch).',
+                            model_filename)
         else:
             sess.run(tf.compat.v1.global_variables_initializer())
+            self._logger.info('No pretrained model provided, initializing all variables from scratch.')
+
+        # saver = tf.compat.v1.train.Saver(tf.compat.v1.global_variables(), max_to_keep=max_to_keep)
+        # model_filename = train_kwargs.get('model_filename')
+        # if model_filename is not None:
+        #     saver.restore(sess, model_filename)
+        #     self._epoch = epoch + 1
+        # else:
+        #     sess.run(tf.compat.v1.global_variables_initializer())
         self._logger.info('Start training ...')
 
         while self._epoch <= epochs:
