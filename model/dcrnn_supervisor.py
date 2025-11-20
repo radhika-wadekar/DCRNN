@@ -127,6 +127,9 @@ class DCRNNSupervisor(object):
         else:
             tvars = all_tvars
 
+        print("Logging tvars")
+        print(tvars)
+        
         #tvars = tf.compat.v1.trainable_variables()
         grads = tf.gradients(self._train_loss, tvars)
         max_grad_norm = kwargs['train'].get('max_grad_norm', 1.)
