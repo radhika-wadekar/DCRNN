@@ -3,7 +3,8 @@ from __future__ import division
 from __future__ import print_function
 
 import argparse
-from logging import config
+import logging
+import logging.config as logging_config  # only if you actually use it
 import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 tf.compat.v1.disable_resource_variables()
@@ -27,8 +28,8 @@ def main(args):
         tf_config.gpu_options.allow_growth = True
         with tf.compat.v1.Session(config=tf_config) as sess:
             mask_config = build_mask_config(adj_mx,
-                                      config.get('data', {}),
-                                      config.get('model', {}))
+                                      supervisor_config.get('data', {}),
+                                      supervisor_config.get('model', {}))
             supervisor = DCRNNSupervisor(adj_mx=adj_mx, mask_config=mask_config, **supervisor_config)
 
             supervisor.train(sess=sess)
