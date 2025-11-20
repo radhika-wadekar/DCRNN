@@ -26,7 +26,9 @@ def main(args):
             tf_config = tf.compat.v1.ConfigProto(device_count={'GPU': 0})
         tf_config.gpu_options.allow_growth = True
         with tf.compat.v1.Session(config=tf_config) as sess:
-            mask_config = build_mask_config(adj_mx, supervisor_config.get('model', {}))
+            mask_config = build_mask_config(adj_mx,
+                                      config.get('data', {}),
+                                      config.get('model', {}))
             supervisor = DCRNNSupervisor(adj_mx=adj_mx, mask_config=mask_config, **supervisor_config)
 
             supervisor.train(sess=sess)
