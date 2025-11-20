@@ -21,7 +21,7 @@ class DCGRUCell(RNNCell):
         pass
 
     def __init__(self, num_units, adj_mx, max_diffusion_step, num_nodes, num_proj=None,
-                 activation=tf.nn.tanh, reuse=None, filter_type="laplacian", use_gc_for_ru=True):
+                 activation=tf.nn.tanh, reuse=None, filter_type="laplacian", use_gc_for_ru=True, mask_var=None):
         """
 
         :param num_units:
@@ -43,18 +43,60 @@ class DCGRUCell(RNNCell):
         self._max_diffusion_step = max_diffusion_step
         self._supports = []
         self._use_gc_for_ru = use_gc_for_ru
+        self._mask_var = mask_var
+        
+        
+        # supports = []
+        # if filter_type == "laplacian":
+        #     supports.append(utils.calculate_scaled_laplacian(adj_mx, lambda_max=None))
+        # elif filter_type == "random_walk":
+        #     supports.append(utils.calculate_random_walk_matrix(adj_mx).T)
+        # elif filter_type == "dual_random_walk":
+        #     supports.append(utils.calculate_random_walk_matrix(adj_mx).T)
+        #     supports.append(utils.calculate_random_walk_matrix(adj_mx.T).T)
+        # else:
+        #     supports.append(utils.calculate_scaled_laplacian(adj_mx))
+        # for support in supports:
+        #     self._supports.append(self._build_sparse_matrix(support))
+
+
         supports = []
-        if filter_type == "laplacian":
-            supports.append(utils.calculate_scaled_laplacian(adj_mx, lambda_max=None))
-        elif filter_type == "random_walk":
-            supports.append(utils.calculate_random_walk_matrix(adj_mx).T)
-        elif filter_type == "dual_random_walk":
-            supports.append(utils.calculate_random_walk_matrix(adj_mx).T)
-            supports.append(utils.calculate_random_walk_matrix(adj_mx.T).T)
+        self.filter_type = filter_type  # keep if needed later
+
+        if self._mask_var is None:
+            # ORIGINAL BEHAVIOR: static supports from numpy adj_mx
+            if filter_type == "laplacian":
+                supports.append(utils.calculate_scaled_laplacian(adj_mx, lambda_max=None))
+            elif filter_type == "random_walk":
+                supports.append(utils.calculate_random_walk_matrix(adj_mx).T)
+            elif filter_type == "dual_random_walk":
+                supports.append(utils.calculate_random_walk_matrix(adj_mx).T)
+                supports.append(utils.calculate_random_walk_matrix(adj_mx.T).T)
+            else:
+                supports.append(utils.calculate_scaled_laplacian(adj_mx))
+            for support in supports:
+                self._supports.append(self._build_sparse_matrix(support))
         else:
-            supports.append(utils.calculate_scaled_laplacian(adj_mx))
-        for support in supports:
-            self._supports.append(self._build_sparse_matrix(support))
+            # NEW BEHAVIOR: build supports from masked adjacency inside TF graph
+            # Convert numpy adj_mx to tf.Tensor
+            A_orig = tf.convert_to_tensor(adj_mx, dtype=tf.float32)
+            sig_mask = tf.nn.sigmoid(self._mask_var)  # [N, N]
+            A_tilde = sig_mask * A_orig
+
+            if filter_type == "laplacian":
+                L = utils.calculate_scaled_laplacian_tf(A_tilde, lambda_max=None)
+                self._supports.append(self._build_sparse_matrix_tf(L))
+            elif filter_type == "random_walk":
+                rw = utils.calculate_random_walk_matrix_tf(A_tilde)
+                self._supports.append(self._build_sparse_matrix_tf(tf.transpose(rw)))
+            elif filter_type == "dual_random_walk":
+                rw_forward = utils.calculate_random_walk_matrix_tf(A_tilde)
+                rw_backward = utils.calculate_random_walk_matrix_tf(tf.transpose(A_tilde))
+                self._supports.append(self._build_sparse_matrix_tf(tf.transpose(rw_forward)))
+                self._supports.append(self._build_sparse_matrix_tf(tf.transpose(rw_backward)))
+            else:
+                L = utils.calculate_scaled_laplacian_tf(A_tilde, lambda_max=None)
+                self._supports.append(self._build_sparse_matrix_tf(L))
 
     @staticmethod
     def _build_sparse_matrix(L):
@@ -63,6 +105,15 @@ class DCGRUCell(RNNCell):
         L = tf.SparseTensor(indices, L.data, L.shape)
         return tf.sparse.reorder(L)
 
+    @staticmethod
+    def _build_sparse_matrix_tf(L):
+        """
+        L: dense [N, N] tf.Tensor
+        returns: tf.SparseTensor
+        """
+        # Use tf.sparse.from_dense if available
+        return tf.sparse.from_dense(L)
+    
     @property
     def state_size(self):
         return self._num_nodes * self._num_units

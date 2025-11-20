@@ -22,12 +22,14 @@ class DCRNNSupervisor(object):
     Do experiments using Graph Random Walk RNN model.
     """
 
-    def __init__(self, adj_mx, **kwargs):
+    def __init__(self, adj_mx, mask_config=None, **kwargs):
 
         self._kwargs = kwargs
+        self.mask_config = mask_config
         self._data_kwargs = kwargs.get('data')
         self._model_kwargs = kwargs.get('model')
         self._train_kwargs = kwargs.get('train')
+        
 
         # logging.
         self._log_dir = self._get_log_dir(kwargs)
@@ -48,13 +50,13 @@ class DCRNNSupervisor(object):
             with tf.compat.v1.variable_scope('DCRNN', reuse=False):
                 self._train_model = DCRNNModel(is_training=True, scaler=scaler,
                                                batch_size=self._data_kwargs['batch_size'],
-                                               adj_mx=adj_mx, **self._model_kwargs)
+                                               adj_mx=adj_mx, mask_config=self._mask_config, **self._model_kwargs)
 
         with tf.compat.v1.name_scope('Test'):
             with tf.compat.v1.variable_scope('DCRNN', reuse=True):
                 self._test_model = DCRNNModel(is_training=False, scaler=scaler,
                                               batch_size=self._data_kwargs['test_batch_size'],
-                                              adj_mx=adj_mx, **self._model_kwargs)
+                                              adj_mx=adj_mx, mask_config=self._mask_config,**self._model_kwargs)
 
         # Learning rate.
         self._lr = tf.compat.v1.get_variable('learning_rate', shape=(), initializer=tf.compat.v1.constant_initializer(0.01),
@@ -80,7 +82,41 @@ class DCRNNSupervisor(object):
         self._loss_fn = masked_mae_loss(scaler, null_val)
         self._train_loss = self._loss_fn(preds=preds, labels=labels)
 
-        tvars = tf.compat.v1.trainable_variables()
+        # Regularization terms for mask
+        lambda_sparsity = float(self._train_kwargs.get('lambda_sparsity', 0.0))
+        lambda_magnitude = float(self._train_kwargs.get('lambda_magnitude', 0.0))
+        lambda_diversity = float(self._train_kwargs.get('lambda_diversity', 0.0))
+
+        reg_loss = 0.0
+        if self._mask_config is not None and self._mask_config.get('use_learnable_mask', False):
+            # mask_var will be created in DCRNNModel
+            mask_var = self._train_model.mask_var  # [N, N]
+            sig_mask = tf.nn.sigmoid(mask_var)
+
+            # Sparsity: L1 on sigmoid(mask)
+            sparsity = tf.reduce_sum(tf.abs(sig_mask))
+
+            # Magnitude: L2 on raw mask params
+            magnitude = tf.reduce_sum(tf.square(mask_var))
+
+            # For now, no diversity (single mask). If you add multiple later, extend this.
+            diversity = 0.0
+
+            reg_loss = (lambda_sparsity * sparsity +
+                        lambda_magnitude * magnitude -
+                        lambda_diversity * diversity)
+            self._train_loss += reg_loss
+
+        # Choose trainable vars (freeze backbone if requested)
+        all_tvars = tf.compat.v1.trainable_variables()
+        freeze_backbone = self._train_kwargs.get('freeze_backbone', False)
+        if freeze_backbone and self._mask_config is not None and self._mask_config.get('use_learnable_mask', False):
+            # Only train variables in 'Masks/' scope
+            tvars = [v for v in all_tvars if v.name.startswith('Masks/')]
+        else:
+            tvars = all_tvars
+
+        #tvars = tf.compat.v1.trainable_variables()
         grads = tf.gradients(self._train_loss, tvars)
         max_grad_norm = kwargs['train'].get('max_grad_norm', 1.)
         grads, _ = tf.clip_by_global_norm(grads, max_grad_norm)

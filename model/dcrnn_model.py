@@ -8,8 +8,9 @@ from model.dcrnn_cell import DCGRUCell
 
 
 class DCRNNModel(object):
-    def __init__(self, is_training, batch_size, scaler, adj_mx, **model_kwargs):
+    def __init__(self, is_training, batch_size, scaler, adj_mx, mask_config=None,**model_kwargs):
         self._scaler = scaler
+        self._mask_config = mask_config
 
         self._loss = None
         self._mae = None
@@ -28,6 +29,21 @@ class DCRNNModel(object):
         input_dim = int(model_kwargs.get('input_dim', 1))
         output_dim = int(model_kwargs.get('output_dim', 1))
 
+        # Build learnable adjacency mask if enabled
+        if mask_config is not None and mask_config.get('use_learnable_mask', False):
+            num_nodes = mask_config['num_nodes']
+            init_bias = mask_config.get('init_bias', 3.0)
+            with tf.compat.v1.variable_scope('Masks', reuse=tf.compat.v1.AUTO_REUSE):
+                # mask_var: [N, N]
+                self.mask_var = tf.compat.v1.get_variable(
+                    'adj_mask',
+                    shape=[num_nodes, num_nodes],
+                    initializer=tf.compat.v1.constant_initializer(init_bias)
+                )
+        else:
+            self.mask_var = None
+
+
         self._inputs = tf.compat.v1.placeholder(
             tf.float32, shape=(batch_size, seq_len, num_nodes, input_dim), name='inputs'
         )
@@ -42,7 +58,8 @@ class DCRNNModel(object):
             adj_mx,
             max_diffusion_step=max_diffusion_step,
             num_nodes=num_nodes,
-            filter_type=filter_type
+            filter_type=filter_type,
+            mask_var=self.mask_var
         )
         cell_with_projection = DCGRUCell(
             rnn_units,
@@ -50,7 +67,8 @@ class DCRNNModel(object):
             max_diffusion_step=max_diffusion_step,
             num_nodes=num_nodes,
             num_proj=output_dim,
-            filter_type=filter_type
+            filter_type=filter_type,
+            mask_var=self.mask_var
         )
 
         encoding_cells = [cell] * num_rnn_layers

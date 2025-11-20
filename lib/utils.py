@@ -210,3 +210,57 @@ def load_pickle(pickle_file):
         print('Unable to load data ', pickle_file, ':', e)
         raise
     return pickle_data
+
+
+
+def build_mask_config(adj_mx, data_cfg):
+    """
+    Returns a dict with mask-related hyperparams and shapes.
+    adj_mx: numpy array [N, N] (A_orig)
+    data_cfg: kwargs['data'] section from yaml
+    """
+    num_nodes = adj_mx.shape[0]
+    use_masks = data_cfg.get('use_temporal_masks', False)
+    if not use_masks:
+        return None
+
+    num_tod = data_cfg.get('num_tod_buckets', 4)
+    num_dow = data_cfg.get('num_dow_buckets', 2)
+
+    mask_cfg = {
+        'use_temporal_masks': True,
+        'num_nodes': num_nodes,
+        'num_tod_buckets': num_tod,
+        'num_dow_buckets': num_dow,
+        # you could add initial bias if you want sigmoid≈1
+        'init_bias': 3.0
+    }
+    return mask_cfg
+
+def calculate_random_walk_matrix_tf(adj_mx):
+    """
+    adj_mx: [N, N] tf.Tensor
+    returns: [N, N] tf.Tensor
+    """
+    rowsum = tf.reduce_sum(adj_mx, axis=1, keepdims=True)  # [N, 1]
+    inv_rowsum = tf.math.reciprocal_no_nan(rowsum)
+    return adj_mx * inv_rowsum
+
+def calculate_scaled_laplacian_tf(adj_mx, lambda_max=None):
+    """
+    TF version similar to numpy version (simplified).
+    adj_mx: [N, N] tf.Tensor
+    """
+    # D = diag(sum A)
+    d = tf.reduce_sum(adj_mx, axis=1)
+    d_inv_sqrt = tf.math.reciprocal_no_nan(tf.sqrt(d))
+    d_mat = tf.linalg.diag(d_inv_sqrt)
+    # normalized Laplacian L = I - D^{-1/2} A D^{-1/2}
+    eye = tf.eye(tf.shape(adj_mx)[0], dtype=adj_mx.dtype)
+    L = eye - tf.matmul(tf.matmul(d_mat, adj_mx), d_mat)
+    # scale: \tilde{L} = 2L / lambda_max - I
+    if lambda_max is None:
+        # crude spectral radius estimate: max diagonal
+        lambda_max = tf.reduce_max(tf.linalg.eigvalsh(L))
+    L_scaled = (2.0 / lambda_max) * L - eye
+    return L_scaled

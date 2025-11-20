@@ -8,7 +8,7 @@ tf.compat.v1.disable_resource_variables()
 tf.compat.v1.disable_eager_execution()
 import yaml
 
-from lib.utils import load_graph_data
+from lib.utils import build_mask_config,load_graph_data
 from model.dcrnn_supervisor import DCRNNSupervisor
 
 
@@ -22,7 +22,8 @@ def run_dcrnn(args):
     graph_pkl_filename = config['data']['graph_pkl_filename']
     _, _, adj_mx = load_graph_data(graph_pkl_filename)
     with tf.compat.v1.Session(config=tf_config) as sess:
-        supervisor = DCRNNSupervisor(adj_mx=adj_mx, **config)
+        mask_config = build_mask_config(adj_mx, config.get('model', {}))
+        supervisor = DCRNNSupervisor(adj_mx=adj_mx, mask_config=mask_config,**config)
         supervisor.load(sess, config['train']['model_filename'])
         outputs = supervisor.evaluate(sess)
         np.savez_compressed(args.output_filename, **outputs)
