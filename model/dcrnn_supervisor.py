@@ -121,7 +121,7 @@ class DCRNNSupervisor(object):
         # Choose trainable vars (freeze backbone if requested)
         all_tvars = tf.compat.v1.trainable_variables()
         freeze_backbone = self._train_kwargs.get('freeze_backbone', False)
-        if freeze_backbone and self._mask_config is not None and self._mask_config.get('use_learnable_mask', False):
+        if freeze_backbone and self._mask_config is not None and self._mask_config.get('use_temporal_masks', False):
             # Only train variables in 'Masks/' scope
             tvars = [v for v in all_tvars if v.name.startswith('Masks/')]
         else:
