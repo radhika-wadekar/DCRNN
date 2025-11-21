@@ -40,12 +40,14 @@ class DCRNNModel(object):
                 self.M_tod = tf.compat.v1.get_variable(
                     'M_tod',
                     shape=[num_tod, num_nodes, num_nodes],
-                    initializer=tf.compat.v1.constant_initializer(init_bias)
+                    initializer=tf.compat.v1.constant_initializer(init_bias),
+                    trainable=True
                 )
                 self.M_dow = tf.compat.v1.get_variable(
                     'M_dow',
                     shape=[num_dow, num_nodes, num_nodes],
-                    initializer=tf.compat.v1.constant_initializer(init_bias)
+                    initializer=tf.compat.v1.constant_initializer(init_bias),
+                    trainable=True
                 )
 
             # context indices (scalar per batch)

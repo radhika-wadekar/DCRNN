@@ -123,7 +123,7 @@ class DCRNNSupervisor(object):
         freeze_backbone = self._train_kwargs.get('freeze_backbone', False)
         if freeze_backbone and self._mask_config is not None and self._mask_config.get('use_temporal_masks', False):
             # Only train variables in 'Masks/' scope
-            tvars = [v for v in all_tvars if v.name.startswith('Masks/')]
+            tvars = [v for v in all_tvars if v.name.startswith('DCRNN/Masks/')]
         else:
             tvars = all_tvars
 
@@ -337,6 +337,10 @@ class DCRNNSupervisor(object):
                     break
 
             history.append(val_mae)
+            M_tod_val = sess.run(self._train_model.M_tod)
+            print(f"\nEpoch {self._epoch} - M_tod sample values:")
+            print(f"  Min: {M_tod_val.min():.4f}, Max: {M_tod_val.max():.4f}, Mean: {M_tod_val.mean():.4f}")
+            print(f"  First TOD bucket, node [0,0]: {M_tod_val[0, 0, 0]:.4f}")
             # Increases epoch.
             self._epoch += 1
 
