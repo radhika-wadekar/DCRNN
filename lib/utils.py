@@ -9,8 +9,7 @@ import tensorflow as tf
 from scipy.sparse import linalg
 
 
-class DataLoader(object):
-
+class DataLoader:
     def __init__(self, xs, ys, batch_size, tod_indices=None, dow_indices=None,
                  shuffle=True, pad_with_last_sample=True):
         self.batch_size = batch_size
@@ -30,7 +29,6 @@ class DataLoader(object):
             self.num_batch = int(np.ceil(self.size / self.batch_size))
 
     def _build_context_groups(self):
-
         from collections import defaultdict
         self.context_groups = defaultdict(list)
         for i in range(len(self.xs)):
@@ -66,7 +64,7 @@ class DataLoader(object):
                 x_batch = self.xs[batch_idx]
                 y_batch = self.ys[batch_idx]
 
-                # Pad if needed
+
                 if self.pad_with_last_sample and len(batch_idx) < self.batch_size:
                     pad_n = self.batch_size - len(batch_idx)
                     x_batch = np.concatenate([x_batch, np.repeat(x_batch[-1:], pad_n, axis=0)])
@@ -102,10 +100,6 @@ class DataLoader(object):
 
 
 class StandardScaler:
-    """
-    Standard the input
-    """
-
     def __init__(self, mean, std):
         self.mean = mean
         self.std = std
@@ -119,12 +113,12 @@ class StandardScaler:
 
 def add_simple_summary(writer, names, values, global_step):
     """
-    Writes summary for a list of scalars.
-    :param writer:
-    :param names:
-    :param values:
-    :param global_step:
-    :return:
+        Writes summary for a list of scalars.
+        :param writer:
+        :param names:
+        :param values:
+        :param global_step:
+        :return:
     """
     for name, value in zip(names, values):
         summary = tf.compat.v1.Summary()
@@ -229,7 +223,6 @@ def get_total_trainable_parameter_size():
 
 def load_dataset(dataset_dir, batch_size, test_batch_size=None,
                  use_temporal_context=False, **kwargs):
-
     data = {}
 
     for cat in ['train', 'val', 'test']:
@@ -248,8 +241,9 @@ def load_dataset(dataset_dir, batch_size, test_batch_size=None,
     data['scaler'] = scaler
 
 
-    for cat in ['train', 'val', 'test']:
-        data[f'x_{cat}'][..., 0] = scaler.transform(data[f'x_{cat}'][..., 0])
+    for f in ['train', 'val', 'test']:
+        data[f'x_{f}'][..., 0] = scaler.transform(data[f'x_{f}'][..., 0])
+        data[f'y_{f}'][..., 0] = scaler.transform(data[f'y_{f}'][..., 0])
 
 
     test_batch_size = test_batch_size or batch_size
@@ -283,7 +277,6 @@ def load_dataset(dataset_dir, batch_size, test_batch_size=None,
     data['y_test'] = data['y_test']
 
     return data
-
 
 def load_graph_data(pkl_filename):
     sensor_ids, sensor_id_to_ind, adj_mx = load_pickle(pkl_filename)
