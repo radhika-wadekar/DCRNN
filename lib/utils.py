@@ -255,19 +255,19 @@ def load_dataset(dataset_dir, batch_size, test_batch_size=None,
     test_batch_size = test_batch_size or batch_size
 
     if use_temporal_context:
-        data['train_loader'] = DataLoaderM(
+        data['train_loader'] = DataLoader(
             data['x_train'], data['y_train'], batch_size,
             tod_indices=data['tod_train'],
             dow_indices=data['dow_train'],
             shuffle=True
         )
-        data['val_loader'] = DataLoaderM(
+        data['val_loader'] = DataLoader(
             data['x_val'], data['y_val'], test_batch_size,
             tod_indices=data['tod_val'],
             dow_indices=data['dow_val'],
             shuffle=False
         )
-        data['test_loader'] = DataLoaderM(
+        data['test_loader'] = DataLoader(
             data['x_test'], data['y_test'], test_batch_size,
             tod_indices=data['tod_test'],
             dow_indices=data['dow_test'],
@@ -275,9 +275,9 @@ def load_dataset(dataset_dir, batch_size, test_batch_size=None,
         )
     else:
 
-        data['train_loader'] = DataLoaderM(data['x_train'], data['y_train'], batch_size, shuffle=True)
-        data['val_loader'] = DataLoaderM(data['x_val'], data['y_val'], test_batch_size, shuffle=False)
-        data['test_loader'] = DataLoaderM(data['x_test'], data['y_test'], test_batch_size, shuffle=False)
+        data['train_loader'] = DataLoader(data['x_train'], data['y_train'], batch_size, shuffle=True)
+        data['val_loader'] = DataLoader(data['x_val'], data['y_val'], test_batch_size, shuffle=False)
+        data['test_loader'] = DataLoader(data['x_test'], data['y_test'], test_batch_size, shuffle=False)
 
 
     data['y_test'] = data['y_test']

@@ -217,8 +217,8 @@ class DCRNNSupervisor(object):
             # Feed temporal context if masks are enabled
             if tod_batch is not None and hasattr(model, 'tod_idx') and model.tod_idx is not None:
                 # Assuming batch is homogeneous in context or using the first sample
-                feed_dict[model.tod_idx] = int(tod_batch[0])
-                feed_dict[model.dow_idx] = int(dow_batch[0])
+                feed_dict[model.tod_idx] = int(tod_batch)
+                feed_dict[model.dow_idx] = int(dow_batch)
 
             vals = sess.run(fetches, feed_dict=feed_dict)
 
