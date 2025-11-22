@@ -10,65 +10,95 @@ from scipy.sparse import linalg
 
 
 class DataLoader(object):
-    def __init__(self, xs, ys, batch_size, tod=None, dow=None, pad_with_last_sample=True, shuffle=False):
-        """
 
-        :param xs:
-        :param ys:
-        :param batch_size:
-        :param tod: [num_samples] or None
-        :param dow: [num_samples] or None
-        :param pad_with_last_sample: pad with the last sample to make number of samples divisible to batch_size.
-        """
+    def __init__(self, xs, ys, batch_size, tod_indices=None, dow_indices=None,
+                 shuffle=True, pad_with_last_sample=True):
         self.batch_size = batch_size
-        self.current_ind = 0
-
-        self.has_context = (tod is not None) and (dow is not None)
-
-        if pad_with_last_sample:
-            num_padding = (batch_size - (len(xs) % batch_size)) % batch_size
-            if num_padding > 0:
-                x_padding = np.repeat(xs[-1:], num_padding, axis=0)
-                y_padding = np.repeat(ys[-1:], num_padding, axis=0)
-                xs = np.concatenate([xs, x_padding], axis=0)
-                ys = np.concatenate([ys, y_padding], axis=0)
-                if self.has_context:
-                    tod_padding = np.repeat(tod[-1:], num_padding, axis=0)
-                    dow_padding = np.repeat(dow[-1:], num_padding, axis=0)
-                    tod = np.concatenate([tod, tod_padding], axis=0)
-                    dow = np.concatenate([dow, dow_padding], axis=0)
-        self.size = len(xs)
-        self.num_batch = int(self.size // self.batch_size)
-        if shuffle:
-            permutation = np.random.permutation(self.size)
-            xs, ys = xs[permutation], ys[permutation]
-            if self.has_context:
-                tod, dow = tod[permutation], dow[permutation]
-            
+        self.shuffle = shuffle
+        self.pad_with_last_sample = pad_with_last_sample
         self.xs = xs
         self.ys = ys
-        self.tod = tod
-        self.dow = dow
+        self.tod_indices = tod_indices
+        self.dow_indices = dow_indices
 
+        self.use_context = tod_indices is not None and dow_indices is not None
+
+        if self.use_context:
+            self._build_context_groups()
+        else:
+            self.size = len(xs)
+            self.num_batch = int(np.ceil(self.size / self.batch_size))
+
+    def _build_context_groups(self):
+
+        from collections import defaultdict
+        self.context_groups = defaultdict(list)
+        for i in range(len(self.xs)):
+            ctx = (int(self.tod_indices[i]), int(self.dow_indices[i]))
+            self.context_groups[ctx].append(i)
+        self.context_groups = dict(self.context_groups)
+
+        self.num_batch = sum(
+            (len(idxs) + self.batch_size - 1) // self.batch_size
+            for idxs in self.context_groups.values()
+        )
+        self.size = len(self.xs)
 
     def get_iterator(self):
-        self.current_ind = 0
+        if self.use_context:
+            return self._get_context_iterator()
+        else:
+            return self._get_standard_iterator()
 
-        def _wrapper():
-            while self.current_ind < self.num_batch:
-                start_ind = self.batch_size * self.current_ind
-                end_ind = min(self.size, self.batch_size * (self.current_ind + 1))
-                x_i = self.xs[start_ind: end_ind, ...]
-                y_i = self.ys[start_ind: end_ind, ...]
-                if self.has_context:
-                    tod_i = self.tod[start_ind: end_ind]
-                    dow_i = self.dow[start_ind: end_ind]
-                    yield (x_i, y_i, tod_i, dow_i)
-                else:
-                    yield (x_i, y_i)
-                self.current_ind += 1
+    def _get_context_iterator(self):
 
-        return _wrapper()
+        all_batches = []
+
+        for (tod, dow), indices in self.context_groups.items():
+            indices = np.array(indices)
+            if self.shuffle:
+                np.random.shuffle(indices)
+
+            for start in range(0, len(indices), self.batch_size):
+                end = min(start + self.batch_size, len(indices))
+                batch_idx = indices[start:end]
+
+                x_batch = self.xs[batch_idx]
+                y_batch = self.ys[batch_idx]
+
+                # Pad if needed
+                if self.pad_with_last_sample and len(batch_idx) < self.batch_size:
+                    pad_n = self.batch_size - len(batch_idx)
+                    x_batch = np.concatenate([x_batch, np.repeat(x_batch[-1:], pad_n, axis=0)])
+                    y_batch = np.concatenate([y_batch, np.repeat(y_batch[-1:], pad_n, axis=0)])
+
+                all_batches.append((x_batch, y_batch, tod, dow))
+
+        if self.shuffle:
+            np.random.shuffle(all_batches)
+
+        for batch in all_batches:
+            yield batch
+
+    def _get_standard_iterator(self):
+
+        indices = np.arange(self.size)
+        if self.shuffle:
+            np.random.shuffle(indices)
+
+        for start in range(0, self.size, self.batch_size):
+            end = min(start + self.batch_size, self.size)
+            batch_idx = indices[start:end]
+
+            x_batch = self.xs[batch_idx]
+            y_batch = self.ys[batch_idx]
+
+            if self.pad_with_last_sample and len(batch_idx) < self.batch_size:
+                pad_n = self.batch_size - len(batch_idx)
+                x_batch = np.concatenate([x_batch, np.repeat(x_batch[-1:], pad_n, axis=0)])
+                y_batch = np.concatenate([y_batch, np.repeat(y_batch[-1:], pad_n, axis=0)])
+
+            yield x_batch, y_batch
 
 
 class StandardScaler:
@@ -197,29 +227,60 @@ def get_total_trainable_parameter_size():
     return total_parameters
 
 
-def load_dataset(dataset_dir, batch_size, test_batch_size=None, **kwargs):
-    data = {}
-    for category in ['train', 'val', 'test']:
-        cat_data = np.load(os.path.join(dataset_dir, category + '.npz'))
-        data['x_' + category] = cat_data['x']
-        data['y_' + category] = cat_data['y']
-        # NEW: TOD / DOW if present
-        if 'tod' in cat_data and 'dow' in cat_data:
-            data['tod_' + category] = cat_data['tod']
-            data['dow_' + category] = cat_data['dow']
-        else:
-            data['tod_' + category] = None
-            data['dow_' + category] = None
+def load_dataset(dataset_dir, batch_size, test_batch_size=None,
+                 use_temporal_context=False, **kwargs):
 
-    scaler = StandardScaler(mean=data['x_train'][..., 0].mean(), std=data['x_train'][..., 0].std())
-    # Data format
-    for category in ['train', 'val', 'test']:
-        data['x_' + category][..., 0] = scaler.transform(data['x_' + category][..., 0])
-        data['y_' + category][..., 0] = scaler.transform(data['y_' + category][..., 0])
-    data['train_loader'] = DataLoader(data['x_train'], data['y_train'], batch_size, tod=data['tod_train'], dow=data['dow_train'],shuffle=True)
-    data['val_loader'] = DataLoader(data['x_val'], data['y_val'], test_batch_size, tod=data['tod_val'], dow=data['dow_val'], shuffle=False)
-    data['test_loader'] = DataLoader(data['x_test'], data['y_test'], test_batch_size,tod=data['tod_test'], dow=data['dow_test'], shuffle=False)
+    data = {}
+
+    for cat in ['train', 'val', 'test']:
+        cat_data = np.load(os.path.join(dataset_dir, f'{cat}.npz'))
+        data[f'x_{cat}'] = cat_data['x'].astype(np.float32)
+        data[f'y_{cat}'] = cat_data['y'].astype(np.float32)
+
+
+        if use_temporal_context:
+            data[f'tod_{cat}'] = cat_data['tod']
+            data[f'dow_{cat}'] = cat_data['dow']
+
+
+    scaler = StandardScaler(mean=data['x_train'][..., 0].mean(),
+                            std=data['x_train'][..., 0].std())
     data['scaler'] = scaler
+
+
+    for cat in ['train', 'val', 'test']:
+        data[f'x_{cat}'][..., 0] = scaler.transform(data[f'x_{cat}'][..., 0])
+
+
+    test_batch_size = test_batch_size or batch_size
+
+    if use_temporal_context:
+        data['train_loader'] = DataLoaderM(
+            data['x_train'], data['y_train'], batch_size,
+            tod_indices=data['tod_train'],
+            dow_indices=data['dow_train'],
+            shuffle=True
+        )
+        data['val_loader'] = DataLoaderM(
+            data['x_val'], data['y_val'], test_batch_size,
+            tod_indices=data['tod_val'],
+            dow_indices=data['dow_val'],
+            shuffle=False
+        )
+        data['test_loader'] = DataLoaderM(
+            data['x_test'], data['y_test'], test_batch_size,
+            tod_indices=data['tod_test'],
+            dow_indices=data['dow_test'],
+            shuffle=False
+        )
+    else:
+
+        data['train_loader'] = DataLoaderM(data['x_train'], data['y_train'], batch_size, shuffle=True)
+        data['val_loader'] = DataLoaderM(data['x_val'], data['y_val'], test_batch_size, shuffle=False)
+        data['test_loader'] = DataLoaderM(data['x_test'], data['y_test'], test_batch_size, shuffle=False)
+
+
+    data['y_test'] = data['y_test']
 
     return data
 
