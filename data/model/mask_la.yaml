@@ -27,7 +27,7 @@ model:
   use_temporal_masks: true
 
 train:
-  base_lr: 0.01
+  base_lr: 0.1
   dropout: 0
   epoch: 0
   epochs: 20
@@ -39,7 +39,7 @@ train:
   min_learning_rate: 2.0e-06
   optimizer: adam
   patience: 50
-  steps: [1, 3, 5]
+  steps: [1, 3, 5, 11, 13, 17, 19]
   test_every_n_epochs: 10
   lambda_sparsity: 0.001
   lambda_magnitude: 0.0001
