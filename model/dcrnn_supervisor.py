@@ -7,15 +7,6 @@ import os
 import sys
 import tensorflow as tf
 tf.compat.v1.disable_eager_execution()
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-import numpy as np
-import os
-import sys
-import tensorflow as tf
-tf.compat.v1.disable_eager_execution()
 import time
 import yaml
 
@@ -214,7 +205,7 @@ class DCRNNSupervisor(object):
 
             if len(batch) == 4:
                 x, y, tod_batch, dow_batch = batch
-                print(f"Batch {batch_count}: tod={tod_batch}, dow={dow_batch}, x.shape={x.shape}")
+                #print(f"Batch {batch_count}: tod={tod_batch}, dow={dow_batch}, x.shape={x.shape}")
             else:
                 x, y = batch
                 tod_batch = None
@@ -267,7 +258,7 @@ class DCRNNSupervisor(object):
         wait = 0
 
         max_to_keep = train_kwargs.get('max_to_keep', 100)
-        
+
         # --- NEW: build separate savers for restore (backbone only) and save (all vars) ---
         all_vars = tf.compat.v1.global_variables()
         # Mask vars are under 'DCRNN/Masks/...'
@@ -299,8 +290,28 @@ class DCRNNSupervisor(object):
         # else:
         #     sess.run(tf.compat.v1.global_variables_initializer())
         self._logger.info('Start training ...')
+        freeze_after_epoch = train_kwargs.get('freeze_after_epoch', 5)
+        max_grad_norm = train_kwargs.get('max_grad_norm', 5.0)
+        epsilon = float(train_kwargs.get('epsilon', 1e-3))
 
         while self._epoch <= epochs:
+            if self._epoch == freeze_after_epoch:
+              self._logger.info(f'Freezing backbone at epoch {self._epoch}')
+
+              mask_vars = [v for v in tf.compat.v1.trainable_variables()
+                          if 'Masks/' in v.name]
+              mask_optimizer = tf.compat.v1.train.AdamOptimizer(self._lr, epsilon=epsilon)
+              mask_grads = tf.gradients(self._train_loss, mask_vars)
+              mask_grads, _ = tf.clip_by_global_norm(mask_grads, max_grad_norm)
+              global_step = tf.compat.v1.train.get_or_create_global_step()
+              self._train_op = mask_optimizer.apply_gradients(
+                  zip(mask_grads, mask_vars), global_step=global_step)
+
+
+              optimizer_vars = mask_optimizer.variables()
+              sess.run(tf.compat.v1.variables_initializer(optimizer_vars))
+
+              self._logger.info(f'Now training only {len(mask_vars)} mask variables')
             # Learning rate schedule.
             new_lr = max(min_learning_rate, base_lr * (lr_decay_ratio ** np.sum(self._epoch >= np.array(steps))))
             self.set_lr(sess=sess, lr=new_lr)
