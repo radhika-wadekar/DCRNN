@@ -7,6 +7,15 @@ import os
 import sys
 import tensorflow as tf
 tf.compat.v1.disable_eager_execution()
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import numpy as np
+import os
+import sys
+import tensorflow as tf
+tf.compat.v1.disable_eager_execution()
 import time
 import yaml
 
@@ -29,9 +38,9 @@ class DCRNNSupervisor(object):
         self._data_kwargs = kwargs.get('data')
         self._model_kwargs = kwargs.get('model')
         self._train_kwargs = kwargs.get('train')
-        
 
-        # logging.
+
+
         self._log_dir = self._get_log_dir(kwargs)
         log_level = self._kwargs.get('log_level', 'INFO')
         self._logger = utils.get_logger(self._log_dir, __name__, 'info.log', level=log_level)
@@ -129,7 +138,7 @@ class DCRNNSupervisor(object):
 
         print("Logging tvars")
         print(tvars)
-        
+
         #tvars = tf.compat.v1.trainable_variables()
         grads = tf.gradients(self._train_loss, tvars)
         max_grad_norm = kwargs['train'].get('max_grad_norm', 1.)
@@ -200,21 +209,22 @@ class DCRNNSupervisor(object):
             fetches.update({
                 'outputs': model.outputs
             })
-
+        batch_count = 0
         for batch in data_generator:
-            # batch can be (x,y) or (x,y,tod,dow)
+
             if len(batch) == 4:
                 x, y, tod_batch, dow_batch = batch
+                print(f"Batch {batch_count}: tod={tod_batch}, dow={dow_batch}, x.shape={x.shape}")
             else:
                 x, y = batch
                 tod_batch = None
                 dow_batch = None
-
+            batch_count += 1
             feed_dict = {
                 model.inputs: x,
                 model.labels: y,
             }
-            # Feed temporal context if masks are enabled
+
             if tod_batch is not None and hasattr(model, 'tod_idx') and model.tod_idx is not None:
                 # Assuming batch is homogeneous in context or using the first sample
                 feed_dict[model.tod_idx] = int(tod_batch)
@@ -338,9 +348,15 @@ class DCRNNSupervisor(object):
 
             history.append(val_mae)
             M_tod_val = sess.run(self._train_model.M_tod)
+            M_dow_val = sess.run(self._train_model.M_dow)
             print(f"\nEpoch {self._epoch} - M_tod sample values:")
             print(f"  Min: {M_tod_val.min():.4f}, Max: {M_tod_val.max():.4f}, Mean: {M_tod_val.mean():.4f}")
             print(f"  First TOD bucket, node [0,0]: {M_tod_val[0, 0, 0]:.4f}")
+            for i in range(M_tod_val.shape[0]):
+                print(f"TOD bucket {i}: mean={M_tod_val[i].mean():.4f}, std={M_tod_val[i].std():.4f}")
+            for i in range(M_dow_val.shape[0]):
+                print(f"DOW bucket {i}: mean={M_dow_val[i].mean():.4f}, std={M_dow_val[i].std():.4f}")
+
             # Increases epoch.
             self._epoch += 1
 

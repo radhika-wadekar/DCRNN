@@ -4,15 +4,12 @@ from __future__ import print_function
 
 import numpy as np
 import tensorflow as tf
-
 from tensorflow.compat.v1.nn.rnn_cell import RNNCell
-
 from lib import utils
 
 
 class DCGRUCell(RNNCell):
-    """Graph Convolution Gated Recurrent Unit cell.
-    """
+    """Graph Convolution Gated Recurrent Unit cell with dynamic temporal masking."""
 
     def call(self, inputs, **kwargs):
         pass
@@ -21,54 +18,30 @@ class DCGRUCell(RNNCell):
         pass
 
     def __init__(self, num_units, adj_mx, max_diffusion_step, num_nodes, num_proj=None,
-                 activation=tf.nn.tanh, reuse=None, filter_type="laplacian", use_gc_for_ru=True,  M_tod=None, M_dow=None,
-             tod_idx=None, dow_idx=None):
-        """
-
-        :param num_units:
-        :param adj_mx:
-        :param max_diffusion_step:
-        :param num_nodes:
-        :param input_size:
-        :param num_proj:
-        :param activation:
-        :param reuse:
-        :param filter_type: "laplacian", "random_walk", "dual_random_walk".
-        :param use_gc_for_ru: whether to use Graph convolution to calculate the reset and update gates.
-        """
+                 activation=tf.nn.tanh, reuse=None, filter_type="laplacian", use_gc_for_ru=True,
+                 M_tod=None, M_dow=None, tod_idx=None, dow_idx=None):
         super(DCGRUCell, self).__init__(_reuse=reuse)
         self._activation = activation
         self._num_nodes = num_nodes
         self._num_proj = num_proj
         self._num_units = num_units
         self._max_diffusion_step = max_diffusion_step
-        self._supports = []
         self._use_gc_for_ru = use_gc_for_ru
+        self._filter_type = filter_type
+
+        # Store mask references for dynamic computation
         self._M_tod = M_tod
         self._M_dow = M_dow
         self._tod_idx = tod_idx
         self._dow_idx = dow_idx
-        
-        
-        # supports = []
-        # if filter_type == "laplacian":
-        #     supports.append(utils.calculate_scaled_laplacian(adj_mx, lambda_max=None))
-        # elif filter_type == "random_walk":
-        #     supports.append(utils.calculate_random_walk_matrix(adj_mx).T)
-        # elif filter_type == "dual_random_walk":
-        #     supports.append(utils.calculate_random_walk_matrix(adj_mx).T)
-        #     supports.append(utils.calculate_random_walk_matrix(adj_mx.T).T)
-        # else:
-        #     supports.append(utils.calculate_scaled_laplacian(adj_mx))
-        # for support in supports:
-        #     self._supports.append(self._build_sparse_matrix(support))
 
+        # Store original adjacency as tensor for dynamic masking
+        self._A_orig = tf.convert_to_tensor(adj_mx, dtype=tf.float32)
 
-        supports = []
-        self.filter_type = filter_type  # keep if needed later
-
+        # For static case (no masks), precompute supports
+        self._static_supports = []
         if self._M_tod is None or self._M_dow is None:
-            # ORIGINAL BEHAVIOR: static supports from numpy adj_mx
+            supports = []
             if filter_type == "laplacian":
                 supports.append(utils.calculate_scaled_laplacian(adj_mx, lambda_max=None))
             elif filter_type == "random_walk":
@@ -79,34 +52,7 @@ class DCGRUCell(RNNCell):
             else:
                 supports.append(utils.calculate_scaled_laplacian(adj_mx))
             for support in supports:
-                self._supports.append(self._build_sparse_matrix(support))
-        else:
-            
-            # temporal masks
-            A_orig = tf.convert_to_tensor(adj_mx, dtype=tf.float32)
-
-            # pick context-specific masks
-            M_t = tf.gather(self._M_tod, self._tod_idx)  # [N, N]
-            M_d = tf.gather(self._M_dow, self._dow_idx)  # [N, N]
-            sig_t = tf.nn.sigmoid(M_t)
-            sig_d = tf.nn.sigmoid(M_d)
-
-            A_tilde = sig_t * sig_d * A_orig
-
-            if filter_type == "laplacian":
-                L = utils.calculate_scaled_laplacian_tf(A_tilde, lambda_max=None)
-                self._supports.append(self._build_sparse_matrix_tf(L))
-            elif filter_type == "random_walk":
-                rw = utils.calculate_random_walk_matrix_tf(A_tilde)
-                self._supports.append(self._build_sparse_matrix_tf(tf.transpose(rw)))
-            elif filter_type == "dual_random_walk":
-                rw_forward = utils.calculate_random_walk_matrix_tf(A_tilde)
-                rw_backward = utils.calculate_random_walk_matrix_tf(tf.transpose(A_tilde))
-                self._supports.append(self._build_sparse_matrix_tf(tf.transpose(rw_forward)))
-                self._supports.append(self._build_sparse_matrix_tf(tf.transpose(rw_backward)))
-            else:
-                L = utils.calculate_scaled_laplacian_tf(A_tilde, lambda_max=None)
-                self._supports.append(self._build_sparse_matrix_tf(L))
+                self._static_supports.append(self._build_sparse_matrix(support))
 
     @staticmethod
     def _build_sparse_matrix(L):
@@ -114,16 +60,61 @@ class DCGRUCell(RNNCell):
         indices = np.column_stack((L.row, L.col))
         L = tf.SparseTensor(indices, L.data, L.shape)
         return tf.sparse.reorder(L)
-    
+
+    def _compute_dynamic_supports(self):
+        """Compute supports dynamically based on current temporal context."""
+        M_t = tf.gather(self._M_tod, self._tod_idx)  # [N, N]
+        M_d = tf.gather(self._M_dow, self._dow_idx)  # [N, N]
+        sig_t = tf.nn.sigmoid(M_t)
+        sig_d = tf.nn.sigmoid(M_d)
+
+        A_tilde = sig_t * sig_d * self._A_orig  # [N, N]
+
+        supports = []
+        if self._filter_type == "laplacian":
+            L = self._calculate_scaled_laplacian_tf(A_tilde)
+            supports.append(L)
+        elif self._filter_type == "random_walk":
+            rw = self._calculate_random_walk_matrix_tf(A_tilde)
+            supports.append(tf.transpose(rw))
+        elif self._filter_type == "dual_random_walk":
+            rw_forward = self._calculate_random_walk_matrix_tf(A_tilde)
+            rw_backward = self._calculate_random_walk_matrix_tf(tf.transpose(A_tilde))
+            supports.append(tf.transpose(rw_forward))
+            supports.append(tf.transpose(rw_backward))
+        else:
+            L = self._calculate_scaled_laplacian_tf(A_tilde)
+            supports.append(L)
+
+        return supports
+
     @staticmethod
-    def _build_sparse_matrix_tf(L):
-        """
-        L: dense [N, N] tf.Tensor
-        returns: tf.SparseTensor
-        """
-        # Use tf.sparse.from_dense if available
-        return tf.sparse.from_dense(L)
-    
+    def _calculate_random_walk_matrix_tf(A):
+        """Row-normalize adjacency: D^{-1} * A"""
+        d = tf.reduce_sum(A, axis=1)  # [N]
+        d_inv = tf.where(d > 0, 1.0 / d, tf.zeros_like(d))
+        D_inv = tf.linalg.diag(d_inv)
+        return tf.matmul(D_inv, A)
+
+    @staticmethod
+    def _calculate_scaled_laplacian_tf(A, lambda_max=None):
+        """Compute scaled Laplacian: 2*L/lambda_max - I"""
+        N = tf.shape(A)[0]
+        d = tf.reduce_sum(A, axis=1)
+        d_sqrt_inv = tf.where(d > 0, 1.0 / tf.sqrt(d), tf.zeros_like(d))
+        D_sqrt_inv = tf.linalg.diag(d_sqrt_inv)
+
+        # Normalized Laplacian: I - D^{-1/2} A D^{-1/2}
+        I = tf.eye(N, dtype=A.dtype)
+        L = I - tf.matmul(tf.matmul(D_sqrt_inv, A), D_sqrt_inv)
+
+        if lambda_max is None:
+            # Approximate lambda_max as 2 for scaled Laplacian
+            lambda_max = 2.0
+
+        # Scaled Laplacian: 2*L/lambda_max - I
+        return (2.0 / lambda_max) * L - I
+
     @property
     def state_size(self):
         return self._num_nodes * self._num_units
@@ -136,18 +127,10 @@ class DCGRUCell(RNNCell):
         return output_size
 
     def __call__(self, inputs, state, scope=None):
-        """Gated recurrent unit (GRU) with Graph Convolution.
-        :param inputs: (B, num_nodes * input_dim)
-
-        :return
-        - Output: A `2-D` tensor with shape `[batch_size x self.output_size]`.
-        - New state: Either a single `2-D` tensor, or a tuple of tensors matching
-            the arity and shapes of `state`
-        """
+        """GRU with Graph Convolution."""
         with tf.compat.v1.variable_scope(scope or "dcgru_cell"):
-            with tf.compat.v1.variable_scope("gates"):  # Reset gate and update gate.
+            with tf.compat.v1.variable_scope("gates"):
                 output_size = 2 * self._num_units
-                # We start with bias of 1.0 to not reset and not update.
                 if self._use_gc_for_ru:
                     fn = self._gconv
                 else:
@@ -192,16 +175,7 @@ class DCGRUCell(RNNCell):
         return value
 
     def _gconv(self, inputs, state, output_size, bias_start=0.0):
-        """Graph convolution between input and the graph matrix.
-
-        :param args: a 2D Tensor or a list of 2D, batch x n, Tensors.
-        :param output_size:
-        :param bias:
-        :param bias_start:
-        :param scope:
-        :return:
-        """
-        # Reshape input and state to (batch_size, num_nodes, input_dim/state_dim)
+        """Graph convolution with DYNAMIC support computation for temporal masks."""
         batch_size = inputs.get_shape()[0].value
         inputs = tf.reshape(inputs, (batch_size, self._num_nodes, -1))
         state = tf.reshape(state, (batch_size, self._num_nodes, -1))
@@ -210,36 +184,49 @@ class DCGRUCell(RNNCell):
         dtype = inputs.dtype
 
         x = inputs_and_state
-        x0 = tf.transpose(x, perm=[1, 2, 0])  # (num_nodes, total_arg_size, batch_size)
+        x0 = tf.transpose(x, perm=[1, 2, 0])  # (num_nodes, input_size, batch_size)
         x0 = tf.reshape(x0, shape=[self._num_nodes, input_size * batch_size])
         x = tf.expand_dims(x0, axis=0)
+
+        if self._M_tod is not None and self._M_dow is not None:
+            supports = self._compute_dynamic_supports()  # Dense tensors [N, N]
+        else:
+            supports = self._static_supports  # Precomputed sparse tensors
 
         scope = tf.compat.v1.get_variable_scope()
         with tf.compat.v1.variable_scope(scope):
             if self._max_diffusion_step == 0:
                 pass
             else:
-                for support in self._supports:
-                    x1 = tf.sparse.sparse_dense_matmul(support, x0)
+                for support in supports:
+                    # Handle both sparse (static) and dense (dynamic) supports
+                    if isinstance(support, tf.SparseTensor):
+                        x1 = tf.sparse.sparse_dense_matmul(support, x0)
+                    else:
+                        # Dense matmul for dynamic supports
+                        x1 = tf.matmul(support, x0)
                     x = self._concat(x, x1)
 
                     for k in range(2, self._max_diffusion_step + 1):
-                        x2 = 2 * tf.sparse.sparse_dense_matmul(support, x1) - x0
+                        if isinstance(support, tf.SparseTensor):
+                            x2 = 2 * tf.sparse.sparse_dense_matmul(support, x1) - x0
+                        else:
+                            x2 = 2 * tf.matmul(support, x1) - x0
                         x = self._concat(x, x2)
                         x1, x0 = x2, x1
 
-            num_matrices = len(self._supports) * self._max_diffusion_step + 1  # Adds for x itself.
+            num_matrices = len(supports) * self._max_diffusion_step + 1
             x = tf.reshape(x, shape=[num_matrices, self._num_nodes, input_size, batch_size])
-            x = tf.transpose(x, perm=[3, 1, 2, 0])  # (batch_size, num_nodes, input_size, order)
+            x = tf.transpose(x, perm=[3, 1, 2, 0])
             x = tf.reshape(x, shape=[batch_size * self._num_nodes, input_size * num_matrices])
 
             weights = tf.compat.v1.get_variable(
                 'weights', [input_size * num_matrices, output_size], dtype=dtype,
                 initializer=tf.compat.v1.keras.initializers.VarianceScaling(scale=1.0, mode="fan_avg", distribution="uniform"))
-            x = tf.matmul(x, weights)  # (batch_size * self._num_nodes, output_size)
+            x = tf.matmul(x, weights)
 
             biases = tf.compat.v1.get_variable("biases", [output_size], dtype=dtype,
                                      initializer=tf.compat.v1.constant_initializer(bias_start, dtype=dtype))
             x = tf.nn.bias_add(x, biases)
-        # Reshape res back to 2D: (batch_size, num_node, state_dim) -> (batch_size, num_node * state_dim)
+
         return tf.reshape(x, [batch_size, self._num_nodes * output_size])
