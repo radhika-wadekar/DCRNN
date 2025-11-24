@@ -38,12 +38,12 @@ train:
   max_to_keep: 100
   min_learning_rate: 1.0e-05
   optimizer: adam
-  patience: 50
+  patience: 15
   steps: [20, 35]
   test_every_n_epochs: 5
-  lambda_sparsity: 0.00001
-  lambda_magnitude: 0.00001
-  lambda_diversity: 0.01
+  lambda_sparsity: 0.005
+  lambda_magnitude: 0.0005
+  lambda_diversity: 0.0001
   model_filename: data/model/pretrained/METR-LA/models-2.7422-24375
   freeze_backbone: false
   freeze_after_epoch: 10
