@@ -3,7 +3,6 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-import pandas as pd
 import os
 import sys
 import tensorflow as tf
@@ -340,8 +339,8 @@ class DCRNNSupervisor(object):
             train_mae_history.append(train_mae)
             val_mae_history.append(val_mae)
             epoch_history.append(self._epoch)
-            #print(train_mae)
-            #print("Debugging checkpt 1")
+            if self._epoch%10==0 and self._epoch!=0:
+              self._plot_mae_curves(epoch_history, train_mae_history, val_mae_history,save_prefix=f'mae_epoch{self._epoch}')
             utils.add_simple_summary(self._writer,
                                      ['loss/train_loss', 'metric/train_mae', 'loss/val_loss', 'metric/val_mae'],
                                      [train_loss, train_mae, val_loss, val_mae], global_step=global_step)
@@ -365,6 +364,7 @@ class DCRNNSupervisor(object):
                     break
 
             history.append(val_mae)
+
             if hasattr(self._train_model, 'M_tod') and self._train_model.M_tod is not None:
                 M_tod_val = sess.run(self._train_model.M_tod)
                 M_dow_val = sess.run(self._train_model.M_dow)
@@ -379,34 +379,12 @@ class DCRNNSupervisor(object):
                 for i in range(M_dow_val.shape[0]):
                   print(f"  DOW bucket {i}: mean={M_dow_val[i].mean():.4f}, std={M_dow_val[i].std():.4f}")
             # Increases epoch.
+
             self._epoch += 1
 
             sys.stdout.flush()
 
-        plt.figure(figsize=(10, 6))
-        plt.plot(epoch_history, train_mae_history, label='Train MAE', marker='o', linewidth=2)
-        plt.plot(epoch_history, val_mae_history, label='Val MAE', marker='s', linewidth=2)
-        plt.xlabel('Epoch', fontsize=12)
-        plt.ylabel('MAE', fontsize=12)
-        plt.title('Training and Validation MAE', fontsize=14)
-        plt.legend(fontsize=11)
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
 
-        plot_path = os.path.join(self._log_dir, 'mae_curve.png')
-        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        self._logger.info(f'Saved MAE plot to {plot_path}')
-
-
-        df = pd.DataFrame({
-            'epoch': epoch_history,
-            'train_mae': train_mae_history,
-            'val_mae': val_mae_history
-        })
-        csv_path = os.path.join(self._log_dir, 'mae_history.csv')
-        df.to_csv(csv_path, index=False)
-        self._logger.info(f'Saved MAE history to {csv_path}')
 
 
         return np.min(history)
@@ -474,3 +452,32 @@ class DCRNNSupervisor(object):
         with open(os.path.join(self._log_dir, config_filename), 'w') as f:
             yaml.dump(config, f, default_flow_style=False)
         return config['train']['model_filename']
+
+    def _plot_mae_curves(self, epoch_history, train_mae_history, val_mae_history, save_prefix='mae'):
+
+      plt.figure(figsize=(10, 6))
+      plt.plot(epoch_history, train_mae_history, marker='o', linewidth=2, color='blue')
+      plt.xlabel('Epoch', fontsize=12)
+      plt.ylabel('MAE', fontsize=12)
+      plt.title('Training MAE', fontsize=14)
+      plt.grid(True, alpha=0.3)
+      plt.tight_layout()
+
+      plot_path_train = os.path.join(self._log_dir, f'{save_prefix}_train.png')
+      plt.savefig(plot_path_train, dpi=300, bbox_inches='tight')
+      plt.close()
+
+
+      plt.figure(figsize=(10, 6))
+      plt.plot(epoch_history, val_mae_history, marker='s', linewidth=2, color='orange')
+      plt.xlabel('Epoch', fontsize=12)
+      plt.ylabel('MAE', fontsize=12)
+      plt.title('Validation MAE', fontsize=14)
+      plt.grid(True, alpha=0.3)
+      plt.tight_layout()
+
+      plot_path_val = os.path.join(self._log_dir, f'{save_prefix}_val.png')
+      plt.savefig(plot_path_val, dpi=300, bbox_inches='tight')
+      plt.close()
+
+      self._logger.info(f'Saved MAE plots to {plot_path_val}')
