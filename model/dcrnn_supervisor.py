@@ -389,7 +389,7 @@ class DCRNNSupervisor(object):
 
         return np.min(history)
 
-   def evaluate(self, sess, **kwargs):
+    def evaluate(self, sess, **kwargs):
         global_step = sess.run(tf.compat.v1.train.get_or_create_global_step())
         test_results = self.run_epoch_generator(sess, self._test_model,
                                                 self._data['test_loader'].get_iterator(),
