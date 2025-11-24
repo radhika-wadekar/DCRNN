@@ -389,46 +389,55 @@ class DCRNNSupervisor(object):
 
         return np.min(history)
 
-    def evaluate(self, sess, **kwargs):
-        global_step = sess.run(tf.compat.v1.train.get_or_create_global_step())
-        test_results = self.run_epoch_generator(sess, self._test_model,
-                                                self._data['test_loader'].get_iterator(),
-                                                return_output=True,
-                                                training=False)
+   def evaluate(self, sess, **kwargs):
+        global_step = sess.run(tf.compat.v1.train.get_or_create_global_step())
+        test_results = self.run_epoch_generator(sess, self._test_model,
+                                                self._data['test_loader'].get_iterator(),
+                                                return_output=True,
+                                                training=False)
 
-        # y_preds:  a list of (batch_size, horizon, num_nodes, output_dim)
-        test_loss, y_preds = test_results['loss'], test_results['outputs']
-        utils.add_simple_summary(self._writer, ['loss/test_loss'], [test_loss], global_step=global_step)
+        # y_preds:  a list of (batch_size, horizon, num_nodes, output_dim)
+        test_loss, y_preds = test_results['loss'], test_results['outputs']
+        utils.add_simple_summary(self._writer, ['loss/test_loss'], [test_loss], global_step=global_step)
 
-        y_preds = np.concatenate(y_preds, axis=0)
-        scaler = self._data['scaler']
-        predictions = []
-        y_truths = []
-        for horizon_i in range(self._data['y_test'].shape[1]):
-            y_truth = scaler.inverse_transform(self._data['y_test'][:, horizon_i, :, 0])
-            y_truths.append(y_truth)
+        y_preds = np.concatenate(y_preds, axis=0)
 
-            y_pred = scaler.inverse_transform(y_preds[:y_truth.shape[0], horizon_i, :, 0])
-            predictions.append(y_pred)
+        y_test = self._data['y_test']
+        if self._data['test_loader'].use_context:
+            sample_order = []
+            for _, indices in self._data['test_loader'].context_groups.items():
+                sample_order.extend(indices)
 
-            mae = metrics.masked_mae_np(y_pred, y_truth, null_val=0)
-            mape = metrics.masked_mape_np(y_pred, y_truth, null_val=0)
-            rmse = metrics.masked_rmse_np(y_pred, y_truth, null_val=0)
-            self._logger.info(
-                "Horizon {:02d}, MAE: {:.2f}, MAPE: {:.4f}, RMSE: {:.2f}".format(
-                    horizon_i + 1, mae, mape, rmse
-                )
-            )
-            utils.add_simple_summary(self._writer,
-                                     ['%s_%d' % (item, horizon_i + 1) for item in
-                                      ['metric/rmse', 'metric/mape', 'metric/mae']],
-                                     [rmse, mape, mae],
-                                     global_step=global_step)
-        outputs = {
-            'predictions': predictions,
-            'groundtruth': y_truths
-        }
-        return outputs
+            y_test = y_test[sample_order]
+
+        scaler = self._data['scaler']
+        predictions = []
+        y_truths = []
+        for horizon_i in range(y_test.shape[1]):
+            y_truth = scaler.inverse_transform(y_test[:, horizon_i, :, 0])
+            y_truths.append(y_truth)
+
+            y_pred = scaler.inverse_transform(y_preds[:y_truth.shape[0], horizon_i, :, 0])
+            predictions.append(y_pred)
+
+            mae = metrics.masked_mae_np(y_pred, y_truth, null_val=0)
+            mape = metrics.masked_mape_np(y_pred, y_truth, null_val=0)
+            rmse = metrics.masked_rmse_np(y_pred, y_truth, null_val=0)
+            self._logger.info(
+                "Horizon {:02d}, MAE: {:.2f}, MAPE: {:.4f}, RMSE: {:.2f}".format(
+                    horizon_i + 1, mae, mape, rmse
+                )
+            )
+            utils.add_simple_summary(self._writer,
+                                     ['%s_%d' % (item, horizon_i + 1) for item in
+                                      ['metric/rmse', 'metric/mape', 'metric/mae']],
+                                     [rmse, mape, mae],
+                                     global_step=global_step)
+        outputs = {
+            'predictions': predictions,
+            'groundtruth': y_truths
+        }
+        return outputs
 
     def load(self, sess, model_filename):
         """
