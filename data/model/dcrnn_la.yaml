@@ -7,6 +7,7 @@ data:
   test_batch_size: 64
   val_batch_size: 64
   graph_pkl_filename: data/sensor_graph/adj_mx.pkl
+  use_temporal_masks: false
 
 model:
   cl_decay_steps: 2000
@@ -21,9 +22,10 @@ model:
   rnn_units: 64
   seq_len: 12
   use_curriculum_learning: true
+  use_temporal_masks: false
 
 train:
-  base_lr: 0.01
+  base_lr: 0.001
   dropout: 0
   epoch: 0
   epochs: 100
@@ -35,5 +37,6 @@ train:
   min_learning_rate: 2.0e-06
   optimizer: adam
   patience: 50
-  steps: [20, 30, 40, 50]
+  steps: [30, 40, 50]
   test_every_n_epochs: 10
+  init_bias: 5.0

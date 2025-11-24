@@ -3,13 +3,14 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
+import pandas as pd
 import os
 import sys
 import tensorflow as tf
 tf.compat.v1.disable_eager_execution()
 import time
 import yaml
-
+import matplotlib.pyplot as plt
 from lib import utils, metrics
 from lib.AMSGrad import AMSGrad
 from lib.metrics import masked_mae_loss
@@ -256,7 +257,9 @@ class DCRNNSupervisor(object):
         history = []
         min_val_loss = float('inf')
         wait = 0
-
+        train_mae_history = []
+        val_mae_history = []
+        epoch_history = []
         max_to_keep = train_kwargs.get('max_to_keep', 100)
 
         # --- NEW: build separate savers for restore (backbone only) and save (all vars) ---
@@ -290,7 +293,7 @@ class DCRNNSupervisor(object):
         # else:
         #     sess.run(tf.compat.v1.global_variables_initializer())
         self._logger.info('Start training ...')
-        freeze_after_epoch = train_kwargs.get('freeze_after_epoch', 5)
+        freeze_after_epoch = train_kwargs.get('freeze_after_epoch', 100)
         max_grad_norm = train_kwargs.get('max_grad_norm', 5.0)
         epsilon = float(train_kwargs.get('epsilon', 1e-3))
 
@@ -334,7 +337,11 @@ class DCRNNSupervisor(object):
 
             val_loss = val_results['loss'].item()
             val_mae = val_results['mae'].item()
-
+            train_mae_history.append(train_mae)
+            val_mae_history.append(val_mae)
+            epoch_history.append(self._epoch)
+            #print(train_mae)
+            #print("Debugging checkpt 1")
             utils.add_simple_summary(self._writer,
                                      ['loss/train_loss', 'metric/train_mae', 'loss/val_loss', 'metric/val_mae'],
                                      [train_loss, train_mae, val_loss, val_mae], global_step=global_step)
@@ -358,20 +365,50 @@ class DCRNNSupervisor(object):
                     break
 
             history.append(val_mae)
-            M_tod_val = sess.run(self._train_model.M_tod)
-            M_dow_val = sess.run(self._train_model.M_dow)
-            print(f"\nEpoch {self._epoch} - M_tod sample values:")
-            print(f"  Min: {M_tod_val.min():.4f}, Max: {M_tod_val.max():.4f}, Mean: {M_tod_val.mean():.4f}")
-            print(f"  First TOD bucket, node [0,0]: {M_tod_val[0, 0, 0]:.4f}")
-            for i in range(M_tod_val.shape[0]):
-                print(f"TOD bucket {i}: mean={M_tod_val[i].mean():.4f}, std={M_tod_val[i].std():.4f}")
-            for i in range(M_dow_val.shape[0]):
-                print(f"DOW bucket {i}: mean={M_dow_val[i].mean():.4f}, std={M_dow_val[i].std():.4f}")
+            if hasattr(self._train_model, 'M_tod') and self._train_model.M_tod is not None:
+                M_tod_val = sess.run(self._train_model.M_tod)
+                M_dow_val = sess.run(self._train_model.M_dow)
 
+                print(f"\nEpoch {self._epoch} - M_tod sample values:")
+                print(f"  Min: {M_tod_val.min():.4f}, Max: {M_tod_val.max():.4f}, Mean: {M_tod_val.mean():.4f}")
+                print(f"  First TOD bucket, node [0,0]: {M_tod_val[0, 0, 0]:.4f}")
+
+                print(f"\nEpoch {self._epoch} - Mask differentiation:")
+                for i in range(M_tod_val.shape[0]):
+                  print(f"  TOD bucket {i}: mean={M_tod_val[i].mean():.4f}, std={M_tod_val[i].std():.4f}")
+                for i in range(M_dow_val.shape[0]):
+                  print(f"  DOW bucket {i}: mean={M_dow_val[i].mean():.4f}, std={M_dow_val[i].std():.4f}")
             # Increases epoch.
             self._epoch += 1
 
             sys.stdout.flush()
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(epoch_history, train_mae_history, label='Train MAE', marker='o', linewidth=2)
+        plt.plot(epoch_history, val_mae_history, label='Val MAE', marker='s', linewidth=2)
+        plt.xlabel('Epoch', fontsize=12)
+        plt.ylabel('MAE', fontsize=12)
+        plt.title('Training and Validation MAE', fontsize=14)
+        plt.legend(fontsize=11)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+
+        plot_path = os.path.join(self._log_dir, 'mae_curve.png')
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        self._logger.info(f'Saved MAE plot to {plot_path}')
+
+
+        df = pd.DataFrame({
+            'epoch': epoch_history,
+            'train_mae': train_mae_history,
+            'val_mae': val_mae_history
+        })
+        csv_path = os.path.join(self._log_dir, 'mae_history.csv')
+        df.to_csv(csv_path, index=False)
+        self._logger.info(f'Saved MAE history to {csv_path}')
+
+
         return np.min(history)
 
     def evaluate(self, sess, **kwargs):
