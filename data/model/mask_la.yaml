@@ -27,23 +27,23 @@ model:
   use_temporal_masks: true
 
 train:
-  base_lr: 0.01
+  base_lr: 0.001
   dropout: 0
   epoch: 0
-  epochs: 20
+  epochs: 50
   epsilon: 1.0e-3
   global_step: 0
-  lr_decay_ratio: 0.1
+  lr_decay_ratio: 0.5
   max_grad_norm: 5
   max_to_keep: 100
-  min_learning_rate: 2.0e-06
+  min_learning_rate: 1.0e-05
   optimizer: adam
   patience: 50
-  steps: [1, 3, 5, 11, 13, 17, 19]
-  test_every_n_epochs: 10
-  lambda_sparsity: 0.0001
-  lambda_magnitude: 0.0001
-  lambda_diversity: 1
+  steps: [20, 35]
+  test_every_n_epochs: 5
+  lambda_sparsity: 0.00001
+  lambda_magnitude: 0.00001
+  lambda_diversity: 0.01
   model_filename: data/model/pretrained/METR-LA/models-2.7422-24375
   freeze_backbone: false
-  freeze_after_epoch: 5
+  freeze_after_epoch: 10
